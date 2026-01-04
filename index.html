@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>戒指計數器 V6.2Z++ 終極修復版</title>
+    <title>計數器 V6.2Z+++ 終極聖戰版</title>
     <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #F5F5DC; font-family: sans-serif; user-select: none; }
@@ -51,7 +51,7 @@
                 <button class="zoom-btn" onclick="resize(10)">＋</button>
             </div>
             <div class="target-area">目標: <input type="number" id="target-input" placeholder="20000"> <span id="est-result"></span></div>
-            <div style="font-size: 9px; color: #bcbcad;">ID: 2530853 | V6.2Z++ 修復版</div>
+            <div style="font-size: 9px; color: #bcbcad;">V6.2Z+++ 終極修復</div>
         </div>
     </div>
     <script>
@@ -59,6 +59,7 @@
         let history = JSON.parse(localStorage.getItem('myHistory')) || [];
         let fontSize = parseInt(localStorage.getItem('myFontSize')) || 120;
         let bleDevice = null;
+        let lastRingValue = -1;
 
         const counterEl = document.getElementById('counter');
         const bleBtn = document.getElementById('ble-status');
@@ -68,7 +69,6 @@
             counterEl.style.fontSize = fontSize + "px";
             localStorage.setItem('myCounter', count);
             localStorage.setItem('myFontSize', fontSize);
-            
             if (count > 0 && count % 500 === 0 && (!history[0] || history[0].count !== count)) {
                 const now = new Date();
                 const timeStr = `${now.getFullYear()}/${now.getMonth()+1}/${now.getDate()} ${now.getHours()}:${now.getMinutes().toString().padStart(2,'0')}`;
@@ -87,7 +87,7 @@
             res.innerText = `預計: ${targetDate.getMonth()+1}/${targetDate.getDate()} ${targetDate.getHours()}:${targetDate.getMinutes().toString().padStart(2,'0')}`;
         }
 
-        // --- 藍牙同步機制優化 ---
+        // --- 藍牙核心：同步與除靈 ---
         bleBtn.onclick = async () => {
             if (bleDevice && bleDevice.gatt.connected) { await bleDevice.gatt.disconnect(); bleBtn.innerText = "🔗"; bleBtn.classList.remove('connected'); return; }
             try {
@@ -96,48 +96,42 @@
                     filters: [{ name: 'DU_CT01' }], optionalServices: [0xFFFA]
                 })).gatt.connect();
                 const service = await server.getPrimaryService(0xFFFA);
-                const chars = await service.getCharacteristics();
-                const bleChar = chars.find(c => c.properties.notify || c.properties.indicate);
+                const bleChar = (await service.getCharacteristics()).find(c => c.properties.notify || c.properties.indicate);
 
                 if (bleChar) {
                     await bleChar.startNotifications();
                     bleChar.addEventListener('characteristicvaluechanged', (event) => {
                         const data = event.target.value;
-                        let ringValue = 0;
-                        // 優化讀取：嘗試從不同位元組捕獲正確的計數值 (兼容 ID: 2530853)
                         if (data.byteLength >= 2) {
-                            const val16 = data.getUint16(0, true);
-                            const val8 = data.getUint8(1); 
-                            // 判斷是否為 8190 或無效系統數據，若是則嘗試偏移量讀取
-                            ringValue = (val16 === 8190 || val16 === 0) ? data.getUint16(1, true) : val16;
-                        }
-
-                        if (ringValue < 8000) {
-                            count = ringValue;
-                            updateDisplay();
+                            let ringValue = data.getUint16(0, true);
+                            
+                            // 封印幽靈：擋掉 8190, 5407 等系統噪音
+                            if (ringValue < 5000) { 
+                                count = ringValue; 
+                                updateDisplay(); 
+                            }
                         }
                     });
                     bleBtn.innerText = "🔋"; bleBtn.classList.replace('searching', 'connected');
                 }
-            } catch (err) { bleBtn.classList.remove('searching'); console.error("連線錯誤:", err); }
+            } catch (err) { bleBtn.classList.remove('searching'); }
         };
 
-        // --- 螢幕控制修復 ---
+        // --- 手動控制層 ---
         let startTime = 0, holdTimer, isHolding = false;
         const ctrl = document.getElementById('control-layer');
         ctrl.addEventListener('touchstart', (e) => {
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
             startTime = Date.now(); isHolding = true;
             holdTimer = setTimeout(() => {
-                if (isHolding && confirm("歸零？")) { count = 0; updateDisplay(); }
+                if (isHolding && confirm("確定歸零？")) { count = 0; updateDisplay(); }
                 document.getElementById('progress-bar').classList.remove('active');
             }, 5000);
             setTimeout(() => { if(isHolding) document.getElementById('progress-bar').classList.add('active'); }, 3500);
         });
-        ctrl.addEventListener('touchend', (e) => {
+        ctrl.addEventListener('touchend', () => {
             if (isHolding && Date.now() - startTime < 400) { 
-                count++; // 螢幕點擊加 1
-                updateDisplay(); 
+                count++; updateDisplay(); 
             }
             isHolding = false; clearTimeout(holdTimer);
             document.getElementById('progress-bar').classList.remove('active');
@@ -149,8 +143,7 @@
             document.getElementById('log-content').innerHTML = content;
         };
         document.getElementById('log-close').onclick = () => document.getElementById('log-panel').classList.remove('active');
-        function clearHistory() { if(confirm("清空歷史紀錄？")) { history = []; localStorage.setItem('myHistory', "[]"); updateDisplay(); } }
-        document.getElementById('target-input').value = localStorage.getItem('myTarget') || "";
+        function clearHistory() { if(confirm("確定清空紀錄？")) { history = []; localStorage.setItem('myHistory', "[]"); updateDisplay(); } }
         updateDisplay();
     </script>
 </body>
