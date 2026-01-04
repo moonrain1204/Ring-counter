@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>戒指計數器 V6.2X 終極除靈版</title>
+    <title>戒指計數器 V6.2Y 強制同步版</title>
     <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #F5F5DC; font-family: sans-serif; user-select: none; }
@@ -51,14 +51,14 @@
                 <button class="zoom-btn" onclick="resize(10)">＋</button>
             </div>
             <div class="target-area">目標: <input type="number" id="target-input" placeholder="0"> <span id="est-result"></span></div>
-            <div style="font-size: 9px; color: #bcbcad;">V6.2X 終極除靈版</div>
+            <div style="font-size: 9px; color: #bcbcad;">V6.2Y 強制同步版</div>
         </div>
     </div>
     <script>
         let count = parseInt(localStorage.getItem('myCounter')) || 0;
         let history = JSON.parse(localStorage.getItem('myHistory')) || [];
         let fontSize = parseInt(localStorage.getItem('myFontSize')) || 120;
-        let isBleConnecting = false;
+        let isBleConnected = false;
 
         const counterEl = document.getElementById('counter');
         const bleBtn = document.getElementById('ble-status');
@@ -88,10 +88,9 @@
 
         let bleDevice = null;
         bleBtn.onclick = async () => {
-            if (bleDevice && bleDevice.gatt.connected) { await bleDevice.gatt.disconnect(); bleBtn.innerText = "🔗"; return; }
+            if (bleDevice && bleDevice.gatt.connected) { await bleDevice.gatt.disconnect(); bleBtn.innerText = "🔗"; bleBtn.classList.remove('connected'); isBleConnected = false; return; }
             try {
                 bleBtn.classList.add('searching');
-                isBleConnecting = true;
                 const server = await (bleDevice = await navigator.bluetooth.requestDevice({
                     filters: [{ name: 'DU_CT01' }], optionalServices: [0xFFFA]
                 })).gatt.connect();
@@ -100,20 +99,21 @@
 
                 if (bleChar) {
                     await bleChar.startNotifications();
+                    isBleConnected = true;
                     bleChar.addEventListener('characteristicvaluechanged', (event) => {
                         const data = event.target.value;
                         if (data.byteLength >= 2) {
                             const ringValue = data.getUint16(0, true);
-                            // 破咒關鍵：過濾掉 8190 等系統異常數值
+                            // 修正：擋掉異常大數，且只要連線中，手機數字就必須等於戒指數字
                             if (ringValue < 8000) { 
-                                count = ringValue;
+                                count = ringValue; 
                                 updateDisplay();
                             }
                         }
                     });
                     bleBtn.innerText = "🔋"; bleBtn.classList.replace('searching', 'connected');
                 }
-            } catch (err) { bleBtn.classList.remove('searching'); } finally { isBleConnecting = false; }
+            } catch (err) { bleBtn.classList.remove('searching'); }
         };
 
         let startTime = 0, holdTimer, isHolding = false;
@@ -129,7 +129,8 @@
         });
         ctrl.addEventListener('touchend', () => {
             if (isHolding && Date.now() - startTime < 400) { 
-                count++; // 終極修復：確保螢幕點擊絕對能加 1
+                // 螢幕點擊：先加 1，若有藍牙，下一秒也會被戒指數據校正
+                count++; 
                 updateDisplay(); 
             }
             isHolding = false; clearTimeout(holdTimer);
@@ -142,7 +143,7 @@
             document.getElementById('log-content').innerHTML = content;
         };
         document.getElementById('log-close').onclick = () => document.getElementById('log-panel').classList.remove('active');
-        function clearHistory() { if(confirm("確定清空歷史？")) { history = []; localStorage.setItem('myHistory', "[]"); updateDisplay(); } }
+        function clearHistory() { if(confirm("確定清空紀錄？")) { history = []; localStorage.setItem('myHistory', "[]"); updateDisplay(); } }
         document.getElementById('target-input').value = localStorage.getItem('myTarget') || "";
         updateDisplay();
     </script>
