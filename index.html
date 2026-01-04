@@ -3,10 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>戒指計數器 V6.2T 終極同步版</title>
+    <title>戒指計數器 V6.2U 數據修復版</title>
     <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #F5F5DC; font-family: sans-serif; user-select: none; }
+        
         #header-controls { position: absolute; top: 20px; width: 100%; display: flex; justify-content: center; align-items: center; z-index: 100; }
         #ble-status {
             position: absolute; left: 20px; top: 0px; width: 35px; height: 35px; border-radius: 50%;
@@ -16,19 +17,27 @@
         #ble-status.connected { background: #4CAF50; color: white; border: none; box-shadow: 0 0 10px #4CAF50; }
         #ble-status.searching { animation: blink 1s infinite; background: #FFD700; }
         @keyframes blink { 50% { opacity: 0.4; } }
+
         #sacred-text { color: #8B4513; font-family: "標楷體", serif; font-size: 20px; font-weight: 900; letter-spacing: 2px; }
         #log-toggle { position: absolute; right: 20px; top: 0px; width: 16px; height: 16px; background: rgba(112, 128, 144, 0.4); border-radius: 50%; cursor: pointer; }
+        
         #display-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; pointer-events: none; z-index: 1; }
         #counter { color: #00008B; font-size: 120px; font-weight: bold; transition: font-size 0.1s; }
+        
         #control-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; background: transparent; touch-action: none; }
+        
         #log-panel { position: absolute; top: 0; right: -100%; width: 100%; height: 100%; background: #fff; z-index: 1000; transition: right 0.3s; padding: 20px; overflow-y: auto; }
         #log-panel.active { right: 0; }
+        
         .bottom-bar { position: absolute; bottom: 10px; width: 100%; padding: 0 15px; display: flex; justify-content: space-between; align-items: flex-end; z-index: 500; pointer-events: none; }
         .ui-area { pointer-events: auto; background: rgba(245, 245, 220, 0.8); padding: 8px; border-radius: 10px; }
+        
         .zoom-controls { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
         .zoom-btn { width: 30px; height: 30px; background: #8B4513; color: white; border: none; border-radius: 5px; font-size: 18px; }
+
         .target-area { display: flex; align-items: center; gap: 5px; color: #bcbcad; font-size: 13px; }
         #target-input { background: transparent; border: none; border-bottom: 1px solid #bcbcad; color: #8b8b7a; font-size: 16px; width: 75px; outline: none; }
+        
         #progress-bar { position: absolute; top: 0; left: 0; height: 6px; background-color: transparent; width: 0%; z-index: 800; }
         #progress-bar.active { background-color: #FF4500; transition: width 1.5s linear; width: 100% !important; transition-delay: 3.5s; }
     </style>
@@ -38,11 +47,13 @@
     <div id="header-controls"><div id="ble-status">🔗</div><div id="sacred-text">南無本師大自在王佛</div><div id="log-toggle"></div></div>
     <div id="display-layer"><div id="counter">0</div></div>
     <div id="control-layer"></div>
+
     <div id="log-panel">
         <div id="log-close" style="text-align:right; font-size:35px; cursor:pointer;">✕</div>
         <div id="log-content"></div>
         <button onclick="clearHistory()" style="width:100%; margin-top:30px; padding:15px; background:#f44; color:white; border:none; border-radius:10px;">清空歷史紀錄</button>
     </div>
+
     <div class="bottom-bar">
         <div class="ui-area">
             <div class="zoom-controls">
@@ -51,14 +62,15 @@
                 <button class="zoom-btn" onclick="resize(10)">＋</button>
             </div>
             <div class="target-area">目標: <input type="number" id="target-input" placeholder="0"> <span id="est-result"></span></div>
-            <div style="font-size: 9px; color: #bcbcad;">V6.2T 終極同步版</div>
+            <div style="font-size: 9px; color: #bcbcad;">V6.2U 核心修正版</div>
         </div>
     </div>
+
     <script>
         let count = parseInt(localStorage.getItem('myCounter')) || 0;
         let history = JSON.parse(localStorage.getItem('myHistory')) || [];
         let fontSize = parseInt(localStorage.getItem('myFontSize')) || 120;
-        let bleLock = false; // 連線後的同步鎖
+        let isSyncing = false;
 
         const counterEl = document.getElementById('counter');
         const bleBtn = document.getElementById('ble-status');
@@ -68,6 +80,8 @@
             counterEl.style.fontSize = fontSize + "px";
             localStorage.setItem('myCounter', count);
             localStorage.setItem('myFontSize', fontSize);
+            
+            // 每 500 次自動紀錄
             if (count > 0 && count % 500 === 0 && (!history[0] || history[0].count !== count)) {
                 const now = new Date();
                 const timeStr = `${now.getFullYear()}/${now.getMonth()+1}/${now.getDate()} ${now.getHours()}:${now.getMinutes().toString().padStart(2,'0')}`;
@@ -78,6 +92,7 @@
         }
 
         function resize(delta) { fontSize = Math.max(40, fontSize + delta); updateDisplay(); }
+
         function updateEstimation() {
             const target = parseInt(document.getElementById('target-input').value);
             const res = document.getElementById('est-result');
@@ -86,65 +101,77 @@
             res.innerText = `預計: ${targetDate.getMonth()+1}/${targetDate.getDate()} ${targetDate.getHours()}:${targetDate.getMinutes().toString().padStart(2,'0')}`;
         }
 
+        // --- 核心同步修正：連線即抹除舊值並強制同步 ---
         let bleDevice = null;
         bleBtn.onclick = async () => {
-            if (bleDevice && bleDevice.gatt.connected) { await bleDevice.gatt.disconnect(); bleBtn.innerText = "🔗"; bleBtn.classList.remove('connected'); return; }
+            if (bleDevice && bleDevice.gatt.connected) { await bleDevice.gatt.disconnect(); bleBtn.innerText = "🔗"; return; }
             try {
                 bleBtn.classList.add('searching');
+                isSyncing = true; // 開啟同步鎖，忽略手機舊數據
                 const server = await (bleDevice = await navigator.bluetooth.requestDevice({
                     filters: [{ name: 'DU_CT01' }], optionalServices: [0xFFFA]
                 })).gatt.connect();
                 const service = await server.getPrimaryService(0xFFFA);
-                const bleChar = (await service.getCharacteristics()).find(c => c.properties.notify);
+                const chars = await service.getCharacteristics();
+                const bleChar = chars.find(c => c.properties.notify || c.properties.indicate);
 
                 if (bleChar) {
                     await bleChar.startNotifications();
-                    // 開啟連線鎖定：這段時間內強制以戒指傳來的第一個數字為準
-                    bleLock = true; 
                     bleChar.addEventListener('characteristicvaluechanged', (event) => {
                         const data = event.target.value;
                         if (data.byteLength >= 2) {
                             const ringValue = data.getUint16(0, true);
-                            // 強制同步：忽略 8190，直接改用戒指發送的真實數字
-                            if (bleLock || ringValue !== count) {
+                            // 強制覆蓋：一旦戒指有動作，立刻同步並解鎖
+                            if (isSyncing || ringValue !== count) {
                                 count = ringValue;
-                                bleLock = false; 
+                                isSyncing = false;
                                 updateDisplay();
                             }
                         }
                     });
-                    bleBtn.innerText = "🔋"; bleBtn.classList.replace('searching', 'connected');
+                    bleBtn.innerText = "🔋";
+                    bleBtn.classList.remove('searching');
+                    bleBtn.classList.add('connected');
                 }
-            } catch (err) { bleBtn.classList.remove('searching'); }
+            } catch (err) { bleBtn.classList.remove('searching'); isSyncing = false; }
         };
 
+        // --- 手動點擊與歸零保護 ---
         let startTime = 0, holdTimer, isHolding = false;
         const ctrl = document.getElementById('control-layer');
+        
         ctrl.addEventListener('touchstart', (e) => {
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
-            startTime = Date.now(); isHolding = true;
+            startTime = Date.now();
+            isHolding = true;
+            // 5 秒長按歸零
             holdTimer = setTimeout(() => {
-                if (isHolding && confirm("歸零？")) { count = 0; updateDisplay(); }
+                if (isHolding && confirm("確定要將計數歸零嗎？")) { count = 0; updateDisplay(); }
                 document.getElementById('progress-bar').classList.remove('active');
             }, 5000);
+            // 3.5 秒後出現進度條
             setTimeout(() => { if(isHolding) document.getElementById('progress-bar').classList.add('active'); }, 3500);
         });
+
         ctrl.addEventListener('touchend', () => {
             if (isHolding && Date.now() - startTime < 400) { 
-                count++; // 確保螢幕點擊能正常加 1
+                count++; // 修復螢幕加 1 失敗
                 updateDisplay(); 
             }
-            isHolding = false; clearTimeout(holdTimer);
+            isHolding = false;
+            clearTimeout(holdTimer);
             document.getElementById('progress-bar').classList.remove('active');
         });
 
+        // 紀錄面板與歷史
         document.getElementById('log-toggle').onclick = () => {
             document.getElementById('log-panel').classList.add('active');
             const content = history.length ? history.map(h => `<div style="padding:15px; border-bottom:1px solid #eee;"><b>${h.count}</b> <span style="float:right;">${h.time}</span></div>`).join('') : "無紀錄";
             document.getElementById('log-content').innerHTML = content;
         };
         document.getElementById('log-close').onclick = () => document.getElementById('log-panel').classList.remove('active');
-        function clearHistory() { if(confirm("確定清空歷史？")) { history = []; localStorage.setItem('myHistory', "[]"); updateDisplay(); } }
+        function clearHistory() { if(confirm("確定清空紀錄？")) { history = []; localStorage.setItem('myHistory', "[]"); updateDisplay(); } }
+        
         document.getElementById('target-input').value = localStorage.getItem('myTarget') || "";
         updateDisplay();
     </script>
