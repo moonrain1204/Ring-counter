@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>戒指型計數器連動app v6.2i</title>
+    <title>戒指型計數器連動app v6.2j</title>
     <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #F5F5DC; font-family: sans-serif; user-select: none; }
@@ -48,7 +48,7 @@
     <div class="bottom-bar">
         <div class="info-area">
             <div class="target-area">目標: <input type="number" id="target-input" placeholder="0"> <span id="est-result"></span></div>
-            <div style="font-size: 10px; color: #bcbcad; margin-top: 2px;">數值修正版 v6.2i</div>
+            <div style="font-size: 10px; color: #bcbcad; margin-top: 2px;">同步修正版 v6.2j</div>
         </div>
     </div>
 
@@ -57,35 +57,29 @@
         let history = JSON.parse(localStorage.getItem('myHistory')) || [];
         const counterEl = document.getElementById('counter');
         const bleBtn = document.getElementById('ble-status');
-        const targetInput = document.getElementById('target-input');
 
         function updateDisplay() {
             counterEl.innerText = count;
             localStorage.setItem('myCounter', count);
-            updateEstimation();
-            // 自動存檔
+            // 每 500 次存檔功能保留
             if (count > 0 && count % 500 === 0 && (!history[0] || history[0].count !== count)) {
                 const now = new Date();
                 const timeStr = `${now.getFullYear()}/${now.getMonth()+1}/${now.getDate()} ${now.getHours()}:${now.getMinutes().toString().padStart(2,'0')}`;
                 history.unshift({ count: count, time: timeStr });
                 localStorage.setItem('myHistory', JSON.stringify(history));
             }
+            updateEstimation();
         }
 
         function updateEstimation() {
-            const target = parseInt(targetInput.value);
-            localStorage.setItem('myTarget', target || "");
+            const target = parseInt(document.getElementById('target-input').value);
             const res = document.getElementById('est-result');
             if (!target || target <= count) { res.innerText = ""; return; }
             const targetDate = new Date(Date.now() + (target - count) * 9 * 1000); 
             res.innerText = `預計: ${targetDate.getMonth()+1}/${targetDate.getDate()} ${targetDate.getHours()}:${targetDate.getMinutes().toString().padStart(2,'0')}`;
         }
 
-        targetInput.oninput = updateEstimation;
-        targetInput.value = localStorage.getItem('myTarget') || "";
-        updateDisplay();
-
-        // --- 藍牙同步與強制修正邏輯 ---
+        // --- 核心修復：強制連結邏輯 ---
         let bleDevice = null;
         bleBtn.onclick = async () => {
             if (bleDevice && bleDevice.gatt.connected) { await bleDevice.gatt.disconnect(); return; }
@@ -105,11 +99,11 @@
                     await bleChar.startNotifications();
                     bleChar.addEventListener('characteristicvaluechanged', (event) => {
                         const data = event.target.value;
+                        // 修正解析：抓取戒指傳來的 16位元 總計數
                         if (data.byteLength >= 2) {
-                            // 修正數據偏移解析
                             const hardwareCount = data.getUint16(0, true);
-                            // 強制同步：只要戒指有數據，手機就聽戒指的
-                            if (hardwareCount > 0 && hardwareCount !== count) {
+                            // 重點：強制覆蓋！只要連線，手機就聽戒指的數值
+                            if (hardwareCount !== count) {
                                 count = hardwareCount;
                                 updateDisplay();
                             }
@@ -122,8 +116,8 @@
             } catch (err) { bleBtn.classList.remove('searching'); }
         };
 
-        // --- 螢幕觸控加法與 5秒歸零保護 ---
-        let startTime = 0, holdTimer, visualTimer, isHolding = false;
+        // --- 螢幕點擊修正 ---
+        let startTime = 0, holdTimer, isHolding = false;
         const ctrl = document.getElementById('control-layer');
         ctrl.addEventListener('touchstart', (e) => {
             if (e.target.id === 'target-input') return;
@@ -133,23 +127,29 @@
                 if (isHolding && confirm("確定要歸零嗎？")) { count = 0; updateDisplay(); }
                 document.getElementById('progress-bar').classList.remove('active');
             }, 5000);
-            visualTimer = setTimeout(() => { if(isHolding) document.getElementById('progress-bar').classList.add('active'); }, 3500);
+            setTimeout(() => { if(isHolding) document.getElementById('progress-bar').classList.add('active'); }, 3500);
         });
         ctrl.addEventListener('touchend', () => {
-            if (isHolding && Date.now() - startTime < 400) { count++; updateDisplay(); }
+            if (isHolding && Date.now() - startTime < 400) { 
+                count++; 
+                updateDisplay(); 
+            }
             isHolding = false;
-            clearTimeout(holdTimer); clearTimeout(visualTimer);
+            clearTimeout(holdTimer);
             document.getElementById('progress-bar').classList.remove('active');
         });
 
-        // 面板操作
+        // 歷史面板
         document.getElementById('log-toggle').onclick = () => {
             document.getElementById('log-panel').classList.add('active');
             const content = history.length ? history.map(h => `<div style="padding:15px; border-bottom:1px solid #eee;"><b>${h.count}</b> <span style="float:right;">${h.time}</span></div>`).join('') : "無紀錄";
             document.getElementById('log-content').innerHTML = content;
         };
         document.getElementById('log-close').onclick = () => document.getElementById('log-panel').classList.remove('active');
-        function clearHistory() { if(confirm("確定清空歷史？")) { history = []; localStorage.setItem('myHistory', "[]"); updateDisplay(); } }
+        function clearHistory() { if(confirm("清空？")) { history = []; localStorage.setItem('myHistory', "[]"); updateDisplay(); } }
+        
+        document.getElementById('target-input').value = localStorage.getItem('myTarget') || "";
+        updateDisplay();
     </script>
 </body>
 </html>
