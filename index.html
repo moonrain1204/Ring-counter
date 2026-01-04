@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>戒指計數器 V6.2L 數值縮放同步版</title>
+    <title>戒指計數器 V6.2N 同步修正版</title>
     <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #F5F5DC; font-family: sans-serif; user-select: none; }
@@ -21,25 +21,22 @@
         #sacred-text { color: #8B4513; font-family: "標楷體", serif; font-size: 20px; font-weight: 900; letter-spacing: 2px; }
         #log-toggle { position: absolute; right: 20px; top: 0px; width: 16px; height: 16px; background: rgba(112, 128, 144, 0.4); border-radius: 50%; cursor: pointer; }
         
-        /* 數值顯示層 */
         #display-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; pointer-events: none; z-index: 1; }
         #counter { color: #00008B; font-size: 120px; font-weight: bold; transition: font-size 0.1s; }
         
-        /* 點擊操作層 */
         #control-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; background: transparent; touch-action: none; }
         
         #log-panel { position: absolute; top: 0; right: -100%; width: 100%; height: 100%; background: #fff; z-index: 1000; transition: right 0.3s; padding: 20px; overflow-y: auto; }
         #log-panel.active { right: 0; }
         
         .bottom-bar { position: absolute; bottom: 10px; width: 100%; padding: 0 15px; display: flex; justify-content: space-between; align-items: flex-end; z-index: 500; pointer-events: none; }
-        .control-area { pointer-events: auto; background: rgba(255, 255, 255, 0.5); padding: 8px; border-radius: 10px; }
+        .ui-area { pointer-events: auto; background: rgba(245, 245, 220, 0.8); padding: 8px; border-radius: 10px; }
         
-        /* 專用縮放控制 */
-        .zoom-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 5px; }
-        .zoom-btn { width: 30px; height: 30px; background: #8B4513; color: white; border: none; border-radius: 5px; font-size: 20px; cursor: pointer; }
+        .zoom-controls { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
+        .zoom-btn { width: 30px; height: 30px; background: #8B4513; color: white; border: none; border-radius: 5px; font-size: 18px; }
 
         .target-area { display: flex; align-items: center; gap: 5px; color: #bcbcad; font-size: 13px; }
-        #target-input { background: transparent; border: none; border-bottom: 1px solid #bcbcad; color: #8b8b7a; font-size: 16px; width: 80px; outline: none; }
+        #target-input { background: transparent; border: none; border-bottom: 1px solid #bcbcad; color: #8b8b7a; font-size: 16px; width: 75px; outline: none; }
         
         #progress-bar { position: absolute; top: 0; left: 0; height: 6px; background-color: transparent; width: 0%; z-index: 800; }
         #progress-bar.active { background-color: #FF4500; transition: width 1.5s linear; width: 100% !important; transition-delay: 3.5s; }
@@ -47,12 +44,7 @@
 </head>
 <body>
     <div id="progress-bar"></div>
-    <div id="header-controls">
-        <div id="ble-status">🔗</div>
-        <div id="sacred-text">南無本師大自在王佛</div>
-        <div id="log-toggle"></div>
-    </div>
-
+    <div id="header-controls"><div id="ble-status">🔗</div><div id="sacred-text">南無本師大自在王佛</div><div id="log-toggle"></div></div>
     <div id="display-layer"><div id="counter">0</div></div>
     <div id="control-layer"></div>
 
@@ -63,14 +55,14 @@
     </div>
 
     <div class="bottom-bar">
-        <div class="control-area">
-            <div class="zoom-bar">
-                <button class="zoom-btn" onclick="adjustSize(-10)">－</button>
-                <span style="font-size: 12px; color: #8B4513;">數值大小</span>
-                <button class="zoom-btn" onclick="adjustSize(10)">＋</button>
+        <div class="ui-area">
+            <div class="zoom-controls">
+                <button class="zoom-btn" onclick="changeSize(-10)">－</button>
+                <span style="font-size: 11px; color: #8B4513;">數字縮放</span>
+                <button class="zoom-btn" onclick="changeSize(10)">＋</button>
             </div>
             <div class="target-area">目標: <input type="number" id="target-input" placeholder="0"> <span id="est-result"></span></div>
-            <div style="font-size: 10px; color: #bcbcad; margin-top: 2px;">V6.2L 同步修正版</div>
+            <div style="font-size: 9px; color: #bcbcad;">V6.2N 強制同步修正版</div>
         </div>
     </div>
 
@@ -78,7 +70,8 @@
         let count = parseInt(localStorage.getItem('myCounter')) || 0;
         let history = JSON.parse(localStorage.getItem('myHistory')) || [];
         let fontSize = parseInt(localStorage.getItem('myFontSize')) || 120;
-        
+        let isFirstSync = true; // 新增：用於防止連線瞬間舊值回流
+
         const counterEl = document.getElementById('counter');
         const bleBtn = document.getElementById('ble-status');
 
@@ -97,8 +90,8 @@
             updateEstimation();
         }
 
-        function adjustSize(delta) {
-            fontSize = Math.max(40, Math.min(300, fontSize + delta));
+        function changeSize(delta) {
+            fontSize = Math.max(40, Math.min(400, fontSize + delta));
             updateDisplay();
         }
 
@@ -110,12 +103,13 @@
             res.innerText = `預計: ${targetDate.getMonth()+1}/${targetDate.getDate()} ${targetDate.getHours()}:${targetDate.getMinutes().toString().padStart(2,'0')}`;
         }
 
-        // --- 核心同步：強制抓取戒指數值 ---
+        // --- 核心同步修正：防止 8190 回流 ---
         let bleDevice = null;
         bleBtn.onclick = async () => {
             if (bleDevice && bleDevice.gatt.connected) { await bleDevice.gatt.disconnect(); return; }
             try {
                 bleBtn.classList.add('searching');
+                isFirstSync = true; // 重設同步標記
                 const SERVICE_UUID = 0xFFFA; 
                 bleDevice = await navigator.bluetooth.requestDevice({
                     filters: [{ name: 'DU_CT01' }],
@@ -132,9 +126,10 @@
                         const data = event.target.value;
                         if (data.byteLength >= 2) {
                             const hardwareCount = data.getUint16(0, true);
-                            // 強制同步：只要戒指數值變動，手機端立刻跟隨戒指
-                            if (hardwareCount !== count) {
+                            // 強制同步邏輯：只要連線上，立刻以戒指數值為準
+                            if (isFirstSync || hardwareCount !== count) {
                                 count = hardwareCount;
+                                isFirstSync = false;
                                 updateDisplay();
                             }
                         }
@@ -146,20 +141,24 @@
             } catch (err) { bleBtn.classList.remove('searching'); }
         };
 
-        // --- 點擊遞增與 5秒歸零 ---
+        // --- 手動計數與長按歸零 ---
         let startTime = 0, holdTimer, isHolding = false;
         const ctrl = document.getElementById('control-layer');
         ctrl.addEventListener('touchstart', (e) => {
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
             startTime = Date.now();
             isHolding = true;
             holdTimer = setTimeout(() => {
-                if (isHolding && confirm("確定要歸零嗎？")) { count = 0; updateDisplay(); }
+                if (isHolding && confirm("確定要將計數歸零嗎？")) { count = 0; updateDisplay(); }
                 document.getElementById('progress-bar').classList.remove('active');
             }, 5000);
             setTimeout(() => { if(isHolding) document.getElementById('progress-bar').classList.add('active'); }, 3500);
         });
         ctrl.addEventListener('touchend', () => {
-            if (isHolding && Date.now() - startTime < 400) { count++; updateDisplay(); }
+            if (isHolding && Date.now() - startTime < 400) { 
+                count++; 
+                updateDisplay(); 
+            }
             isHolding = false;
             clearTimeout(holdTimer);
             document.getElementById('progress-bar').classList.remove('active');
@@ -171,7 +170,7 @@
             document.getElementById('log-content').innerHTML = content;
         };
         document.getElementById('log-close').onclick = () => document.getElementById('log-panel').classList.remove('active');
-        function clearHistory() { if(confirm("清空？")) { history = []; localStorage.setItem('myHistory', "[]"); updateDisplay(); } }
+        function clearHistory() { if(confirm("確定清空歷史紀錄？")) { history = []; localStorage.setItem('myHistory', "[]"); updateDisplay(); } }
         
         document.getElementById('target-input').value = localStorage.getItem('myTarget') || "";
         updateDisplay();
