@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>戒指型計數器連動app v6.2c</title>
+    <title>戒指型計數器連動app v6.2d</title>
     <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #F5F5DC; font-family: sans-serif; user-select: none; touch-action: none; }
@@ -61,13 +61,13 @@
     <div class="bottom-bar">
         <div class="left-group">
             <div class="target-area">目標: <input type="number" id="target-input" placeholder="0"> <span id="est-result"></span></div>
-            <div class="mini-info">同步修正版 v6.2c</div>
+            <div class="mini-info">同步修正版 v6.2d</div>
         </div>
-        <div class="mini-info">點擊螢幕或戒指皆可 +1</div>
+        <div class="mini-info">點擊螢幕或操作戒指</div>
     </div>
 
     <script>
-        // --- 核心邏輯 ---
+        // --- 核心資料 ---
         let count = parseInt(localStorage.getItem('myCounter')) || 0;
         let history = JSON.parse(localStorage.getItem('myHistory')) || [];
         const counterEl = document.getElementById('counter');
@@ -78,7 +78,7 @@
             counterEl.innerText = count;
             localStorage.setItem('myCounter', count);
             updateEstimation();
-            // 每 500 次存檔
+            // 每 500 次自動紀錄歷史
             if (count > 0 && count % 500 === 0 && (!history[0] || history[0].count !== count)) {
                 const now = new Date();
                 const timeStr = `${now.getFullYear()}/${now.getMonth()+1}/${now.getDate()} ${now.getHours()}:${now.getMinutes().toString().padStart(2,'0')}`;
@@ -100,7 +100,7 @@
         targetInput.value = localStorage.getItem('myTarget') || "";
         updateDisplay();
 
-        // --- 藍牙同步修正 (核心改善) ---
+        // --- 藍牙連動修正 (移除每次震動) ---
         let bleDevice = null;
         bleBtn.addEventListener('click', async () => {
             if (bleDevice && bleDevice.gatt.connected) {
@@ -123,31 +123,28 @@
                     await bleChar.startNotifications();
                     bleChar.addEventListener('characteristicvaluechanged', (event) => {
                         const data = event.target.value;
-                        // 兼容性讀取：掃描前兩個可能的數值位置
                         let hardwareCount = 0;
                         if (data.byteLength >= 2) {
-                            const valA = data.getUint16(0, true);
-                            const valB = data.byteLength >= 3 ? data.getUint16(1, true) : 0;
-                            hardwareCount = Math.max(valA, valB);
+                            // 同步讀取戒指傳回的數值
+                            hardwareCount = data.getUint16(0, true);
                         }
-                        // 只有當戒指傳回的數字大於 0 且不等於目前數字時才更新
                         if (hardwareCount > 0 && hardwareCount !== count) {
                             count = hardwareCount;
                             updateDisplay();
-                            if(navigator.vibrate) navigator.vibrate(40);
+                            // 此處已移除震動
                         }
                     });
                     bleBtn.innerText = "🔋";
                     bleBtn.classList.remove('searching');
                     bleBtn.classList.add('connected');
+                    if(navigator.vibrate) navigator.vibrate(200); // 僅連線成功震動提醒
                 }
             } catch (err) {
                 bleBtn.classList.remove('searching');
-                alert("連線失敗，請重試");
             }
         });
 
-        // --- 螢幕觸控與歸零邏輯 (保留原功能) ---
+        // --- 螢幕控制 (移除每次震動) ---
         let startTime = 0, holdTimer, visualTimer, isHolding = false;
         const controlLayer = document.getElementById('control-layer');
 
@@ -157,7 +154,11 @@
             startTime = Date.now();
             isHolding = true;
             holdTimer = setTimeout(() => {
-                if (isHolding && confirm("確定要歸零計數嗎？")) { count = 0; updateDisplay(); }
+                if (isHolding && confirm("確定要歸零計數嗎？")) { 
+                    count = 0; 
+                    updateDisplay(); 
+                    if(navigator.vibrate) navigator.vibrate([100, 50, 100]); // 歸零成功震動
+                }
                 document.getElementById('progress-bar').classList.remove('active');
             }, 3500);
             visualTimer = setTimeout(() => { if(isHolding) document.getElementById('progress-bar').classList.add('active'); }, 2800);
@@ -167,7 +168,7 @@
             if (Date.now() - startTime < 400) { 
                 count++; 
                 updateDisplay(); 
-                if(navigator.vibrate) navigator.vibrate(40); 
+                // 此處已移除點擊震動
             }
             isHolding = false;
             clearTimeout(holdTimer); clearTimeout(visualTimer);
