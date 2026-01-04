@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>戒指計數器 V6.2Z 師徒一體版</title>
+    <title>戒指計數器 V6.2Z+ 終極合一版</title>
     <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #F5F5DC; font-family: sans-serif; user-select: none; }
@@ -35,7 +35,7 @@
 </head>
 <body>
     <div id="progress-bar"></div>
-    <div id="header-controls"><div id="ble-status">🔗</div><div id="sacred-text">南無本師大自在王佛</div><div id="log-toggle"></div></div>
+    <div id="header-controls"><div id="ble-status" title="點擊連線戒指">🔗</div><div id="sacred-text">南無本師大自在王佛</div><div id="log-toggle"></div></div>
     <div id="display-layer"><div id="counter">0</div></div>
     <div id="control-layer"></div>
     <div id="log-panel">
@@ -50,12 +50,11 @@
                 <span style="font-size: 11px; color: #8B4513;">縮放</span>
                 <button class="zoom-btn" onclick="resize(10)">＋</button>
             </div>
-            <div class="target-area">目標: <input type="number" id="target-input" placeholder="0"> <span id="est-result"></span></div>
-            <div style="font-size: 9px; color: #bcbcad;">V6.2Z 師徒一體修正版</div>
+            <div class="target-area">目標: <input type="number" id="target-input" placeholder="20000"> <span id="est-result"></span></div>
+            <div style="font-size: 9px; color: #bcbcad;">設備 ID: 2530853 | V6.2Z+</div>
         </div>
     </div>
     <script>
-        // 初始化數據
         let count = parseInt(localStorage.getItem('myCounter')) || 0;
         let history = JSON.parse(localStorage.getItem('myHistory')) || [];
         let fontSize = parseInt(localStorage.getItem('myFontSize')) || 120;
@@ -64,13 +63,11 @@
         const counterEl = document.getElementById('counter');
         const bleBtn = document.getElementById('ble-status');
 
-        function updateDisplay(source) {
+        function updateDisplay() {
             counterEl.innerText = count;
             counterEl.style.fontSize = fontSize + "px";
             localStorage.setItem('myCounter', count);
             localStorage.setItem('myFontSize', fontSize);
-            
-            // 每 500 次自動紀錄邏輯
             if (count > 0 && count % 500 === 0 && (!history[0] || history[0].count !== count)) {
                 const now = new Date();
                 const timeStr = `${now.getFullYear()}/${now.getMonth()+1}/${now.getDate()} ${now.getHours()}:${now.getMinutes().toString().padStart(2,'0')}`;
@@ -89,7 +86,7 @@
             res.innerText = `預計: ${targetDate.getMonth()+1}/${targetDate.getDate()} ${targetDate.getHours()}:${targetDate.getMinutes().toString().padStart(2,'0')}`;
         }
 
-        // --- 藍牙核心：解決各按各的 ---
+        // --- 藍牙同步與破咒機制 ---
         bleBtn.onclick = async () => {
             if (bleDevice && bleDevice.gatt.connected) { await bleDevice.gatt.disconnect(); bleBtn.innerText = "🔗"; bleBtn.classList.remove('connected'); return; }
             try {
@@ -107,17 +104,16 @@
                         const data = event.target.value;
                         if (data.byteLength >= 2) {
                             const ringValue = data.getUint16(0, true);
-                            // 排除除靈提到的 8190 魔法
+                            // 過濾 8190 異常值並強制同步
                             if (ringValue < 8000) {
-                                // 強制同步：手機數值 = 戒指數值
-                                count = ringValue;
-                                updateDisplay('BLE');
+                                count = ringValue; 
+                                updateDisplay();
                             }
                         }
                     });
                     bleBtn.innerText = "🔋"; bleBtn.classList.replace('searching', 'connected');
                 }
-            } catch (err) { bleBtn.classList.remove('searching'); }
+            } catch (err) { bleBtn.classList.remove('searching'); console.error(err); }
         };
 
         // --- 手動控制層 ---
@@ -127,28 +123,27 @@
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
             startTime = Date.now(); isHolding = true;
             holdTimer = setTimeout(() => {
-                if (isHolding && confirm("歸零？")) { count = 0; updateDisplay(); }
+                if (isHolding && confirm("確定要將計數歸零嗎？")) { count = 0; updateDisplay(); }
                 document.getElementById('progress-bar').classList.remove('active');
             }, 5000);
             setTimeout(() => { if(isHolding) document.getElementById('progress-bar').classList.add('active'); }, 3500);
         });
         ctrl.addEventListener('touchend', () => {
             if (isHolding && Date.now() - startTime < 400) { 
-                count++; // 點擊螢幕加 1
-                updateDisplay('TOUCH'); 
+                count++; // 手動計數
+                updateDisplay(); 
             }
             isHolding = false; clearTimeout(holdTimer);
             document.getElementById('progress-bar').classList.remove('active');
         });
 
-        // 紀錄面板
         document.getElementById('log-toggle').onclick = () => {
             document.getElementById('log-panel').classList.add('active');
             const content = history.length ? history.map(h => `<div style="padding:15px; border-bottom:1px solid #eee;"><b>${h.count}</b> <span style="float:right;">${h.time}</span></div>`).join('') : "無紀錄";
             document.getElementById('log-content').innerHTML = content;
         };
         document.getElementById('log-close').onclick = () => document.getElementById('log-panel').classList.remove('active');
-        function clearHistory() { if(confirm("確定清空紀錄？")) { history = []; localStorage.setItem('myHistory', "[]"); updateDisplay(); } }
+        function clearHistory() { if(confirm("確定清空歷史？")) { history = []; localStorage.setItem('myHistory', "[]"); updateDisplay(); } }
         document.getElementById('target-input').value = localStorage.getItem('myTarget') || "";
         updateDisplay();
     </script>
