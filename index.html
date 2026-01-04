@@ -2,8 +2,8 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
-    <title>戒指型計數器連動app v6.2f</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>戒指型計數器連動app v6.2g</title>
     <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #F5F5DC; font-family: sans-serif; user-select: none; }
@@ -16,32 +16,36 @@
             background: rgba(255, 255, 255, 0.7);
             display: flex; align-items: center; justify-content: center;
             font-size: 18px; cursor: pointer; border: 1.5px solid rgba(0,0,0,0.1);
-            pointer-events: auto; z-index: 200; transition: all 0.3s;
+            pointer-events: auto; z-index: 200;
         }
         #ble-status.connected { background: #4CAF50; color: white; box-shadow: 0 0 10px #4CAF50; border: none; }
         #ble-status.searching { animation: blink 1s infinite; background: #FFD700; }
         @keyframes blink { 50% { opacity: 0.4; } }
 
-        #sacred-text { color: #8B4513; font-family: "標楷體", serif; font-size: 20px; font-weight: 900; letter-spacing: 2px; -webkit-text-stroke: 0.8px #8B4513; text-align: center; }
+        #sacred-text { color: #8B4513; font-family: "標楷體", serif; font-size: 20px; font-weight: 900; letter-spacing: 2px; }
         #log-toggle { position: absolute; right: 20px; top: 0px; width: 16px; height: 16px; background: rgba(112, 128, 144, 0.4); border-radius: 50%; cursor: pointer; pointer-events: auto; }
         
+        /* 數值顯示區域 */
         #display-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; pointer-events: none; z-index: 1; }
-        #counter { color: #00008B; font-size: 100px; font-weight: bold; position: relative; }
+        #counter { color: #00008B; font-size: 100px; font-weight: bold; transition: font-size 0.1s; }
         
-        /* 觸控層：設定為可縮放但不影響長按邏輯 */
-        #control-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; background: transparent; touch-action: manipulation; }
+        /* 點擊層 */
+        #control-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; background: transparent; touch-action: none; }
         
-        #log-panel { position: absolute; top: 0; right: -100%; width: 100%; height: 100%; background: #fff; z-index: 1000; transition: right 0.3s ease-out; padding: 20px; overflow-y: auto; }
+        /* 歷史紀錄面板 */
+        #log-panel { position: absolute; top: 0; right: -100%; width: 100%; height: 100%; background: #fff; z-index: 1000; transition: right 0.3s; padding: 20px; overflow-y: auto; }
         #log-panel.active { right: 0; }
         
         .bottom-bar { position: absolute; bottom: 10px; width: 100%; padding: 0 15px; display: flex; justify-content: space-between; align-items: flex-end; z-index: 500; pointer-events: none; }
-        .left-group { display: flex; flex-direction: column; gap: 10px; pointer-events: auto; }
-        .mini-info { color: #bcbcad; font-size: 11px; }
+        .interactive-area { pointer-events: auto; background: rgba(245, 245, 220, 0.8); border-radius: 8px; padding: 5px; }
         
-        .target-area { display: flex; align-items: center; gap: 5px; color: #bcbcad; font-size: 14px; }
-        #target-input { background: transparent; border: none; border-bottom: 1px solid #bcbcad; color: #8b8b7a; font-size: 16px; width: 85px; outline: none; text-align: left; pointer-events: auto; }
+        /* 縮放控制器 */
+        .zoom-controls { display: flex; gap: 10px; margin-bottom: 5px; }
+        .zoom-btn { background: #8b8b7a; color: white; border: none; width: 30px; height: 30px; border-radius: 4px; font-weight: bold; }
+
+        .target-area { display: flex; align-items: center; gap: 5px; color: #bcbcad; font-size: 14px; margin-top: 5px; }
+        #target-input { background: transparent; border: none; border-bottom: 1px solid #bcbcad; color: #8b8b7a; font-size: 16px; width: 85px; outline: none; }
         
-        /* 歸零進度條：延長至 5 秒 */
         #progress-bar { position: absolute; top: 0; left: 0; height: 6px; background-color: transparent; width: 0%; z-index: 800; }
         #progress-bar.active { background-color: #FF4500; transition: width 1.5s linear; width: 100% !important; transition-delay: 3.5s; }
     </style>
@@ -53,39 +57,56 @@
         <div id="sacred-text">南無本師大自在王佛</div>
         <div id="log-toggle"></div>
     </div>
+
     <div id="display-layer"><div id="counter">0</div></div>
     <div id="control-layer"></div>
+
     <div id="log-panel">
-        <div id="log-close" style="text-align:right; font-size:35px; cursor:pointer; padding:10px;">✕</div>
+        <div id="log-close" style="text-align:right; font-size:35px; cursor:pointer;">✕</div>
         <div id="log-content"></div>
         <button onclick="clearHistory()" style="width:100%; margin-top:30px; padding:15px; background:#f44; color:white; border:none; border-radius:10px;">清空歷史紀錄</button>
     </div>
+
     <div class="bottom-bar">
-        <div class="left-group">
+        <div class="interactive-area">
+            <div class="zoom-controls">
+                <button class="zoom-btn" id="zoom-out">－</button>
+                <span style="font-size: 12px; color: #8b8b7a; line-height: 30px;">數值縮放</span>
+                <button class="zoom-btn" id="zoom-in">＋</button>
+            </div>
             <div class="target-area">目標: <input type="number" id="target-input" placeholder="0"> <span id="est-result"></span></div>
-            <div class="mini-info">修正版 v6.2f</div>
+            <div style="font-size: 10px; color: #bcbcad; margin-top: 2px;">版本 v6.2g</div>
         </div>
-        <div class="mini-info">點擊螢幕或操作戒指</div>
+        <div style="font-size: 11px; color: #bcbcad;">按戒指或螢幕+1</div>
     </div>
 
     <script>
         let count = parseInt(localStorage.getItem('myCounter')) || 0;
         let history = JSON.parse(localStorage.getItem('myHistory')) || [];
+        let fontSize = parseInt(localStorage.getItem('myFontSize')) || 100;
+        
         const counterEl = document.getElementById('counter');
         const bleBtn = document.getElementById('ble-status');
         const targetInput = document.getElementById('target-input');
 
         function updateDisplay() {
             counterEl.innerText = count;
+            counterEl.style.fontSize = fontSize + "px";
             localStorage.setItem('myCounter', count);
-            updateEstimation();
+            localStorage.setItem('myFontSize', fontSize);
+            
             if (count > 0 && count % 500 === 0 && (!history[0] || history[0].count !== count)) {
                 const now = new Date();
                 const timeStr = `${now.getFullYear()}/${now.getMonth()+1}/${now.getDate()} ${now.getHours()}:${now.getMinutes().toString().padStart(2,'0')}`;
                 history.unshift({ count: count, time: timeStr });
                 localStorage.setItem('myHistory', JSON.stringify(history));
             }
+            updateEstimation();
         }
+
+        // 縮放按鈕邏輯
+        document.getElementById('zoom-in').onclick = () => { fontSize += 10; updateDisplay(); };
+        document.getElementById('zoom-out').onclick = () => { fontSize = Math.max(40, fontSize - 10); updateDisplay(); };
 
         function updateEstimation() {
             const target = parseInt(targetInput.value);
@@ -100,13 +121,10 @@
         targetInput.value = localStorage.getItem('myTarget') || "";
         updateDisplay();
 
-        // --- 藍牙同步邏輯修正 ---
+        // --- 藍牙同步修正 ---
         let bleDevice = null;
-        bleBtn.addEventListener('click', async () => {
-            if (bleDevice && bleDevice.gatt.connected) {
-                await bleDevice.gatt.disconnect();
-                return;
-            }
+        bleBtn.onclick = async () => {
+            if (bleDevice && bleDevice.gatt.connected) { await bleDevice.gatt.disconnect(); return; }
             try {
                 bleBtn.classList.add('searching');
                 const SERVICE_UUID = 0xFFFA; 
@@ -135,56 +153,31 @@
                     bleBtn.classList.remove('searching');
                     bleBtn.classList.add('connected');
                 }
-            } catch (err) {
-                bleBtn.classList.remove('searching');
-            }
-        });
+            } catch (err) { bleBtn.classList.remove('searching'); }
+        };
 
-        // --- 螢幕觸控與歸零邏輯 (修正秒數問題) ---
+        // --- 觸控加法與 5秒歸零邏輯 ---
         let startTime = 0, holdTimer, visualTimer, isHolding = false;
-        const controlLayer = document.getElementById('control-layer');
+        const ctrl = document.getElementById('control-layer');
 
-        controlLayer.addEventListener('touchstart', (e) => {
-            if (e.target.id === 'target-input') return;
-            // 如果是多指操作（縮放），不觸發長按歸零
-            if (e.touches.length > 1) {
-                clearTimeout(holdTimer);
-                clearTimeout(visualTimer);
-                isHolding = false;
-                document.getElementById('progress-bar').classList.remove('active');
-                return;
-            }
-
+        ctrl.addEventListener('touchstart', (e) => {
             startTime = Date.now();
             isHolding = true;
-            
-            // 延長至 5 秒歸零，避免干擾縮放
             holdTimer = setTimeout(() => {
-                if (isHolding) {
-                    if (confirm("確定要歸零計數嗎？")) { count = 0; updateDisplay(); }
-                }
+                if (isHolding && confirm("確定要歸零計數嗎？")) { count = 0; updateDisplay(); }
                 document.getElementById('progress-bar').classList.remove('active');
             }, 5000);
-
-            // 進度條延遲顯示（3.5秒後才開始跑進度，給予足夠縮放時間）
-            visualTimer = setTimeout(() => { 
-                if(isHolding) document.getElementById('progress-bar').classList.add('active'); 
-            }, 3500);
+            visualTimer = setTimeout(() => { if(isHolding) document.getElementById('progress-bar').classList.add('active'); }, 3500);
         });
 
-        controlLayer.addEventListener('touchend', (e) => {
-            // 短點擊判定
-            if (isHolding && Date.now() - startTime < 400 && e.touches.length === 0) { 
-                count++; 
-                updateDisplay(); 
-            }
+        ctrl.addEventListener('touchend', () => {
+            if (isHolding && Date.now() - startTime < 400) { count++; updateDisplay(); }
             isHolding = false;
-            clearTimeout(holdTimer); 
-            clearTimeout(visualTimer);
+            clearTimeout(holdTimer); clearTimeout(visualTimer);
             document.getElementById('progress-bar').classList.remove('active');
         });
 
-        // 歷史面板
+        // 面板操作
         document.getElementById('log-toggle').onclick = () => {
             document.getElementById('log-panel').classList.add('active');
             const content = history.length ? history.map(h => `<div style="padding:15px; border-bottom:1px solid #eee;"><b>${h.count}</b> <span style="color:#888; font-size:12px; float:right;">${h.time}</span></div>`).join('') : "尚無紀錄";
