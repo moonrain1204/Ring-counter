@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>戒指計數器 V6.2Y 強制同步版</title>
+    <title>戒指計數器 V6.2Z 師徒一體版</title>
     <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #F5F5DC; font-family: sans-serif; user-select: none; }
@@ -47,27 +47,30 @@
         <div class="ui-area">
             <div class="zoom-controls">
                 <button class="zoom-btn" onclick="resize(-10)">－</button>
-                <span style="font-size: 11px; color: #8B4513;">數字縮放</span>
+                <span style="font-size: 11px; color: #8B4513;">縮放</span>
                 <button class="zoom-btn" onclick="resize(10)">＋</button>
             </div>
             <div class="target-area">目標: <input type="number" id="target-input" placeholder="0"> <span id="est-result"></span></div>
-            <div style="font-size: 9px; color: #bcbcad;">V6.2Y 強制同步版</div>
+            <div style="font-size: 9px; color: #bcbcad;">V6.2Z 師徒一體修正版</div>
         </div>
     </div>
     <script>
+        // 初始化數據
         let count = parseInt(localStorage.getItem('myCounter')) || 0;
         let history = JSON.parse(localStorage.getItem('myHistory')) || [];
         let fontSize = parseInt(localStorage.getItem('myFontSize')) || 120;
-        let isBleConnected = false;
+        let bleDevice = null;
 
         const counterEl = document.getElementById('counter');
         const bleBtn = document.getElementById('ble-status');
 
-        function updateDisplay() {
+        function updateDisplay(source) {
             counterEl.innerText = count;
             counterEl.style.fontSize = fontSize + "px";
             localStorage.setItem('myCounter', count);
             localStorage.setItem('myFontSize', fontSize);
+            
+            // 每 500 次自動紀錄邏輯
             if (count > 0 && count % 500 === 0 && (!history[0] || history[0].count !== count)) {
                 const now = new Date();
                 const timeStr = `${now.getFullYear()}/${now.getMonth()+1}/${now.getDate()} ${now.getHours()}:${now.getMinutes().toString().padStart(2,'0')}`;
@@ -86,28 +89,29 @@
             res.innerText = `預計: ${targetDate.getMonth()+1}/${targetDate.getDate()} ${targetDate.getHours()}:${targetDate.getMinutes().toString().padStart(2,'0')}`;
         }
 
-        let bleDevice = null;
+        // --- 藍牙核心：解決各按各的 ---
         bleBtn.onclick = async () => {
-            if (bleDevice && bleDevice.gatt.connected) { await bleDevice.gatt.disconnect(); bleBtn.innerText = "🔗"; bleBtn.classList.remove('connected'); isBleConnected = false; return; }
+            if (bleDevice && bleDevice.gatt.connected) { await bleDevice.gatt.disconnect(); bleBtn.innerText = "🔗"; bleBtn.classList.remove('connected'); return; }
             try {
                 bleBtn.classList.add('searching');
                 const server = await (bleDevice = await navigator.bluetooth.requestDevice({
                     filters: [{ name: 'DU_CT01' }], optionalServices: [0xFFFA]
                 })).gatt.connect();
                 const service = await server.getPrimaryService(0xFFFA);
-                const bleChar = (await service.getCharacteristics()).find(c => c.properties.notify || c.properties.indicate);
+                const chars = await service.getCharacteristics();
+                const bleChar = chars.find(c => c.properties.notify || c.properties.indicate);
 
                 if (bleChar) {
                     await bleChar.startNotifications();
-                    isBleConnected = true;
                     bleChar.addEventListener('characteristicvaluechanged', (event) => {
                         const data = event.target.value;
                         if (data.byteLength >= 2) {
                             const ringValue = data.getUint16(0, true);
-                            // 修正：擋掉異常大數，且只要連線中，手機數字就必須等於戒指數字
-                            if (ringValue < 8000) { 
-                                count = ringValue; 
-                                updateDisplay();
+                            // 排除除靈提到的 8190 魔法
+                            if (ringValue < 8000) {
+                                // 強制同步：手機數值 = 戒指數值
+                                count = ringValue;
+                                updateDisplay('BLE');
                             }
                         }
                     });
@@ -116,6 +120,7 @@
             } catch (err) { bleBtn.classList.remove('searching'); }
         };
 
+        // --- 手動控制層 ---
         let startTime = 0, holdTimer, isHolding = false;
         const ctrl = document.getElementById('control-layer');
         ctrl.addEventListener('touchstart', (e) => {
@@ -129,14 +134,14 @@
         });
         ctrl.addEventListener('touchend', () => {
             if (isHolding && Date.now() - startTime < 400) { 
-                // 螢幕點擊：先加 1，若有藍牙，下一秒也會被戒指數據校正
-                count++; 
-                updateDisplay(); 
+                count++; // 點擊螢幕加 1
+                updateDisplay('TOUCH'); 
             }
             isHolding = false; clearTimeout(holdTimer);
             document.getElementById('progress-bar').classList.remove('active');
         });
 
+        // 紀錄面板
         document.getElementById('log-toggle').onclick = () => {
             document.getElementById('log-panel').classList.add('active');
             const content = history.length ? history.map(h => `<div style="padding:15px; border-bottom:1px solid #eee;"><b>${h.count}</b> <span style="float:right;">${h.time}</span></div>`).join('') : "無紀錄";
