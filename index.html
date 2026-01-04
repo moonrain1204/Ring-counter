@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>戒指計數器 V6.2R 同步修正版</title>
+    <title>戒指計數器 V6.2S 同步修復版</title>
     <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #F5F5DC; font-family: sans-serif; user-select: none; }
@@ -13,7 +13,7 @@
             background: rgba(255, 255, 255, 0.7); display: flex; align-items: center; justify-content: center;
             font-size: 18px; cursor: pointer; border: 1.5px solid rgba(0,0,0,0.1); z-index: 200;
         }
-        #ble-status.connected { background: #4CAF50; color: white; box-shadow: 0 0 10px #4CAF50; border: none; }
+        #ble-status.connected { background: #4CAF50; color: white; border: none; box-shadow: 0 0 10px #4CAF50; }
         #ble-status.searching { animation: blink 1s infinite; background: #FFD700; }
         @keyframes blink { 50% { opacity: 0.4; } }
         #sacred-text { color: #8B4513; font-family: "標楷體", serif; font-size: 20px; font-weight: 900; letter-spacing: 2px; }
@@ -51,14 +51,14 @@
                 <button class="zoom-btn" onclick="resize(10)">＋</button>
             </div>
             <div class="target-area">目標: <input type="number" id="target-input" placeholder="0"> <span id="est-result"></span></div>
-            <div style="font-size: 9px; color: #bcbcad;">V6.2R 終極修正版</div>
+            <div style="font-size: 9px; color: #bcbcad;">V6.2S 終極修復版</div>
         </div>
     </div>
     <script>
         let count = parseInt(localStorage.getItem('myCounter')) || 0;
         let history = JSON.parse(localStorage.getItem('myHistory')) || [];
         let fontSize = parseInt(localStorage.getItem('myFontSize')) || 120;
-        let bleDevice = null;
+        let isFirstSync = false; // 關鍵：連線初期鎖定標記
 
         const counterEl = document.getElementById('counter');
         const bleBtn = document.getElementById('ble-status');
@@ -86,34 +86,35 @@
             res.innerText = `預計: ${targetDate.getMonth()+1}/${targetDate.getDate()} ${targetDate.getHours()}:${targetDate.getMinutes().toString().padStart(2,'0')}`;
         }
 
+        let bleDevice = null;
         bleBtn.onclick = async () => {
             if (bleDevice && bleDevice.gatt.connected) { await bleDevice.gatt.disconnect(); bleBtn.innerText = "🔗"; bleBtn.classList.remove('connected'); return; }
             try {
                 bleBtn.classList.add('searching');
+                isFirstSync = true; // 開啟連線鎖定，準備丟棄手機舊值
                 const server = await (bleDevice = await navigator.bluetooth.requestDevice({
                     filters: [{ name: 'DU_CT01' }], optionalServices: [0xFFFA]
                 })).gatt.connect();
                 const service = await server.getPrimaryService(0xFFFA);
-                const chars = await service.getCharacteristics();
-                const bleChar = chars.find(c => c.properties.notify || c.properties.indicate);
+                const bleChar = (await service.getCharacteristics()).find(c => c.properties.notify || c.properties.indicate);
 
                 if (bleChar) {
                     await bleChar.startNotifications();
                     bleChar.addEventListener('characteristicvaluechanged', (event) => {
                         const data = event.target.value;
-                        // 針對 DU_CT01 精準解析當次計數 (Byte 0-1)
                         if (data.byteLength >= 2) {
                             const ringValue = data.getUint16(0, true);
-                            // 強制同步：只要戒指有數據，立刻覆蓋手機舊值
-                            if (ringValue !== count) {
+                            // 強制覆蓋：只要收到戒指數字（即使是0），就解除手機鎖定並同步
+                            if (isFirstSync || ringValue !== count) {
                                 count = ringValue;
+                                isFirstSync = false; // 接收成功，解除初次連線鎖定
                                 updateDisplay();
                             }
                         }
                     });
                     bleBtn.innerText = "🔋"; bleBtn.classList.replace('searching', 'connected');
                 }
-            } catch (err) { bleBtn.classList.remove('searching'); }
+            } catch (err) { bleBtn.classList.remove('searching'); isFirstSync = false; }
         };
 
         let startTime = 0, holdTimer, isHolding = false;
@@ -122,13 +123,16 @@
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
             startTime = Date.now(); isHolding = true;
             holdTimer = setTimeout(() => {
-                if (isHolding && confirm("確定要將計數歸零嗎？")) { count = 0; updateDisplay(); }
+                if (isHolding && confirm("歸零？")) { count = 0; updateDisplay(); }
                 document.getElementById('progress-bar').classList.remove('active');
             }, 5000);
             setTimeout(() => { if(isHolding) document.getElementById('progress-bar').classList.add('active'); }, 3500);
         });
         ctrl.addEventListener('touchend', () => {
-            if (isHolding && Date.now() - startTime < 400) { count++; updateDisplay(); }
+            if (isHolding && Date.now() - startTime < 400) { 
+                // 修正：只有在非同步鎖定狀態下，手動點擊才有效
+                if (!isFirstSync) { count++; updateDisplay(); }
+            }
             isHolding = false; clearTimeout(holdTimer);
             document.getElementById('progress-bar').classList.remove('active');
         });
@@ -139,7 +143,7 @@
             document.getElementById('log-content').innerHTML = content;
         };
         document.getElementById('log-close').onclick = () => document.getElementById('log-panel').classList.remove('active');
-        function clearHistory() { if(confirm("確定清空歷史紀錄？")) { history = []; localStorage.setItem('myHistory', "[]"); updateDisplay(); } }
+        function clearHistory() { if(confirm("清空歷史？")) { history = []; localStorage.setItem('myHistory', "[]"); updateDisplay(); } }
         document.getElementById('target-input').value = localStorage.getItem('myTarget') || "";
         updateDisplay();
     </script>
