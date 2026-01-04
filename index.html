@@ -5,26 +5,25 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>戒指型計數器連動app v6.2</title>
     <style>
-        /* 樣式完全保留 V6.1 版本 */
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #F5F5DC; font-family: sans-serif; user-select: none; touch-action: none; }
-        
         #header-controls { position: absolute; top: 20px; width: 100%; display: flex; justify-content: center; align-items: center; z-index: 100; }
         
+        /* 藍牙連結按鈕狀態 */
         #ble-status {
             position: absolute; left: 20px; top: 0px;
-            width: 32px; height: 32px; border-radius: 50%;
-            background: rgba(255, 255, 255, 0.6);
+            width: 35px; height: 35px; border-radius: 50%;
+            background: rgba(255, 255, 255, 0.7);
             display: flex; align-items: center; justify-content: center;
-            font-size: 18px; cursor: pointer; border: 1px solid rgba(0,0,0,0.1);
-            pointer-events: auto; transition: all 0.3s;
+            font-size: 18px; cursor: pointer; border: 1.5px solid rgba(0,0,0,0.1);
+            pointer-events: auto; z-index: 200; transition: all 0.3s;
         }
-        #ble-status.connected { background: #4CAF50; color: white; box-shadow: 0 0 10px #4CAF50; }
-        #ble-status.searching { animation: blink 1s infinite; }
-        @keyframes blink { 50% { opacity: 0.3; } }
+        #ble-status.connected { background: #4CAF50; color: white; box-shadow: 0 0 10px #4CAF50; border: none; }
+        #ble-status.searching { animation: blink 1s infinite; background: #FFD700; }
+        @keyframes blink { 50% { opacity: 0.4; } }
 
         #sacred-text { color: #8B4513; font-family: "標楷體", serif; font-size: 20px; font-weight: 900; letter-spacing: 2px; -webkit-text-stroke: 0.8px #8B4513; text-align: center; }
-        #log-toggle { position: absolute; right: 20px; top: 0px; width: 14px; height: 14px; background: rgba(112, 128, 144, 0.4); border-radius: 50%; cursor: pointer; pointer-events: auto; }
+        #log-toggle { position: absolute; right: 20px; top: 0px; width: 16px; height: 16px; background: rgba(112, 128, 144, 0.4); border-radius: 50%; cursor: pointer; pointer-events: auto; }
         
         #display-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; pointer-events: none; z-index: 1; }
         #counter { color: #00008B; font-size: 100px; font-weight: bold; position: relative; will-change: transform; }
@@ -49,7 +48,7 @@
     <div id="progress-bar"></div>
     
     <div id="header-controls">
-        <div id="ble-status" onclick="handleBLEClick()">🔗</div>
+        <div id="ble-status">🔗</div>
         <div id="sacred-text">南無本師大自在王佛</div>
         <div id="log-toggle"></div>
     </div>
@@ -69,7 +68,7 @@
     <div class="bottom-bar">
         <div class="left-group">
             <div class="target-area">
-                目標: <input type="number" id="target-input" oninput="updateEstimation()" placeholder="輸入目標"> 
+                目標: <input type="number" id="target-input" placeholder="輸入目標"> 
                 <span id="est-result"></span>
             </div>
             <div class="mini-info">戒指連動版 v6.2 (DU_CT01)</div>
@@ -78,17 +77,17 @@
     </div>
 
     <script>
+        // --- 核心變數與初始化 ---
         let count = parseInt(localStorage.getItem('myCounter')) || 0;
         let history = JSON.parse(localStorage.getItem('myHistory')) || [];
         const counterEl = document.getElementById('counter');
         const bleBtn = document.getElementById('ble-status');
+        const targetInput = document.getElementById('target-input');
 
         function updateDisplay() {
             counterEl.innerText = count;
             localStorage.setItem('myCounter', count);
             updateEstimation();
-            
-            // 每 500 次自動記錄歷史
             if (count > 0 && count % 500 === 0 && (!history[0] || history[0].count !== count)) {
                 saveHistory();
             }
@@ -102,48 +101,114 @@
         }
 
         function updateEstimation() {
-            const target = parseInt(document.getElementById('target-input').value);
+            const target = parseInt(targetInput.value);
             localStorage.setItem('myTarget', target || "");
             const res = document.getElementById('est-result');
             if (!target || target <= count) { res.innerText = ""; return; }
-            const targetDate = new Date(Date.now() + (target - count) * 9 * 1000); // 估算 9 秒一次
+            const targetDate = new Date(Date.now() + (target - count) * 9 * 1000); 
             res.innerText = `預計: ${targetDate.getMonth()+1}/${targetDate.getDate()} ${targetDate.getHours()}:${targetDate.getMinutes().toString().padStart(2,'0')}`;
         }
 
-        // 初始化顯示
+        targetInput.oninput = updateEstimation;
+        targetInput.value = localStorage.getItem('myTarget') || "";
         updateDisplay();
-        document.getElementById('target-input').value = localStorage.getItem('myTarget') || "";
 
-        // UI 交互邏輯 (歷史面板切換)
+        // --- 藍牙連線功能 (修正點不開的問題) ---
+        let bleDevice = null;
+        let isInitialConnect = true;
+
+        bleBtn.addEventListener('click', async () => {
+            if (bleDevice && bleDevice.gatt.connected) {
+                await bleDevice.gatt.disconnect();
+                return;
+            }
+
+            try {
+                bleBtn.classList.add('searching');
+                const SERVICE_UUID = 0xFFFA; // 根據您提供的數據解析
+
+                bleDevice = await navigator.bluetooth.requestDevice({
+                    filters: [{ name: 'DU_CT01' }],
+                    optionalServices: [SERVICE_UUID]
+                });
+
+                const server = await bleDevice.gatt.connect();
+                const service = await server.getPrimaryService(SERVICE_UUID);
+                const chars = await service.getCharacteristics();
+                const bleChar = chars.find(c => c.properties.notify || c.properties.indicate);
+
+                if (bleChar) {
+                    await bleChar.startNotifications();
+                    isInitialConnect = true; // 重置初始旗標
+
+                    bleChar.addEventListener('characteristicvaluechanged', (event) => {
+                        const data = event.target.value;
+                        if (data.byteLength >= 2) {
+                            // 讀取戒指內部 16 位元數值進行「完全同步」
+                            const hardwareCount = data.getUint16(0, true); 
+
+                            if (isInitialConnect) {
+                                isInitialConnect = false;
+                                return; // 忽略連線當下的第一筆訊號，避免誤加
+                            }
+
+                            if (hardwareCount !== count) {
+                                count = hardwareCount; 
+                                updateDisplay();
+                            }
+                        }
+                    });
+
+                    bleBtn.innerText = "🔋";
+                    bleBtn.classList.remove('searching');
+                    bleBtn.classList.add('connected');
+                }
+            } catch (err) {
+                bleBtn.classList.remove('searching');
+                console.error("藍牙連線錯誤:", err);
+            }
+        });
+
+        // --- V6.1 觸控邏輯 ---
+        let startTime = 0, holdTimer, visualTimer, isHolding = false;
+        const controlLayer = document.getElementById('control-layer');
+
+        controlLayer.addEventListener('touchstart', (e) => {
+            if (e.target.id === 'target-input') return;
+            e.preventDefault();
+            startTime = Date.now();
+            isHolding = true;
+
+            holdTimer = setTimeout(() => {
+                if (isHolding && confirm("確定歸零計數？")) { 
+                    count = 0; 
+                    updateDisplay(); 
+                }
+                document.getElementById('progress-bar').classList.remove('active');
+            }, 3500);
+            visualTimer = setTimeout(() => { if(isHolding) document.getElementById('progress-bar').classList.add('active'); }, 2800);
+        });
+
+        controlLayer.addEventListener('touchend', () => {
+            if (Date.now() - startTime < 400) { 
+                count++; 
+                updateDisplay(); 
+                if(navigator.vibrate) navigator.vibrate(40); 
+            }
+            isHolding = false;
+            clearTimeout(holdTimer); 
+            clearTimeout(visualTimer);
+            document.getElementById('progress-bar').classList.remove('active');
+        });
+
+        // 歷史面板
         document.getElementById('log-toggle').onclick = () => {
             document.getElementById('log-panel').classList.add('active');
             const content = history.length ? history.map(h => `<div style="padding:15px; border-bottom:1px solid #eee;"><b>${h.count}</b> <span style="color:#888; font-size:12px; float:right;">${h.time}</span></div>`).join('') : "尚無紀錄";
             document.getElementById('log-content').innerHTML = content;
         };
         document.getElementById('log-close').onclick = () => document.getElementById('log-panel').classList.remove('active');
-        function clearHistory() { if(confirm("確定清空歷史紀錄？")) { history = []; localStorage.setItem('myHistory', "[]"); updateDisplay(); } }
-
-        // 螢幕觸控加號邏輯
-        let startTime = 0, holdTimer, visualTimer, isHolding = false;
-        document.getElementById('control-layer').addEventListener('touchstart', (e) => {
-            if (e.target.id === 'target-input') return;
-            e.preventDefault();
-            startTime = Date.now();
-            isHolding = true;
-            holdTimer = setTimeout(() => {
-                if (isHolding && confirm("確定歸零計數？")) { count = 0; updateDisplay(); }
-                document.getElementById('progress-bar').classList.remove('active');
-            }, 3500);
-            visualTimer = setTimeout(() => { if(isHolding) document.getElementById('progress-bar').classList.add('active'); }, 2800);
-        });
-        document.getElementById('control-layer').addEventListener('touchend', () => {
-            if (Date.now() - startTime < 400) { count++; updateDisplay(); if(navigator.vibrate) navigator.vibrate(40); }
-            isHolding = false;
-            clearTimeout(holdTimer); clearTimeout(visualTimer);
-            document.getElementById('progress-bar').classList.remove('active');
-        });
+        function clearHistory() { if(confirm("確定清空所有紀錄？")) { history = []; localStorage.setItem('myHistory', "[]"); updateDisplay(); } }
     </script>
-
-    <script src="script.js"></script>
 </body>
 </html>
