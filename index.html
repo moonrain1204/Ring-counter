@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>戒指計數器 V6.2O 強效同步版</title>
+    <title>戒指計數器 V6.2P 雙鍵同步修正版</title>
     <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #F5F5DC; font-family: sans-serif; user-select: none; }
@@ -13,7 +13,7 @@
             background: rgba(255, 255, 255, 0.7); display: flex; align-items: center; justify-content: center;
             font-size: 18px; cursor: pointer; border: 1.5px solid rgba(0,0,0,0.1); z-index: 200;
         }
-        #ble-status.connected { background: #4CAF50; color: white; box-shadow: 0 0 10px #4CAF50; border: none; }
+        #ble-status.connected { background: #4CAF50; color: white; border: none; }
         #ble-status.searching { animation: blink 1s infinite; background: #FFD700; }
         @keyframes blink { 50% { opacity: 0.4; } }
         #sacred-text { color: #8B4513; font-family: "標楷體", serif; font-size: 20px; font-weight: 900; letter-spacing: 2px; }
@@ -51,14 +51,14 @@
                 <button class="zoom-btn" onclick="changeSize(10)">＋</button>
             </div>
             <div class="target-area">目標: <input type="number" id="target-input" placeholder="0"> <span id="est-result"></span></div>
-            <div style="font-size: 9px; color: #bcbcad;">V6.2O 效能修正版</div>
+            <div style="font-size: 9px; color: #bcbcad;">V6.2P 終極同步版</div>
         </div>
     </div>
     <script>
         let count = parseInt(localStorage.getItem('myCounter')) || 0;
         let history = JSON.parse(localStorage.getItem('myHistory')) || [];
         let fontSize = parseInt(localStorage.getItem('myFontSize')) || 120;
-        let bleConnected = false;
+        let initialLock = false; // 用於鎖定連線瞬間的舊值
 
         const counterEl = document.getElementById('counter');
         const bleBtn = document.getElementById('ble-status');
@@ -91,25 +91,37 @@
             if (bleDevice && bleDevice.gatt.connected) { await bleDevice.gatt.disconnect(); return; }
             try {
                 bleBtn.classList.add('searching');
-                // 修正：點擊連線即暫時凍結本地數值，準備接收戒指數據
+                initialLock = true; // 連線開始，鎖定手機舊值
                 const server = await (bleDevice = await navigator.bluetooth.requestDevice({
                     filters: [{ name: 'DU_CT01' }], optionalServices: [0xFFFA]
                 })).gatt.connect();
                 const service = await server.getPrimaryService(0xFFFA);
-                const bleChar = (await service.getCharacteristics()).find(c => c.properties.notify || c.properties.indicate);
+                const chars = await service.getCharacteristics();
+                const bleChar = chars.find(c => c.properties.notify || c.properties.indicate);
 
                 if (bleChar) {
                     await bleChar.startNotifications();
                     bleChar.addEventListener('characteristicvaluechanged', (event) => {
-                        const hardwareCount = event.target.value.getUint16(0, true);
-                        // 強制覆蓋核心：不論手機原本存什麼，一律以戒指即時傳回的數字為準
-                        if (hardwareCount !== count) {
-                            count = hardwareCount;
+                        const data = event.target.value;
+                        let ringCount = 0;
+                        
+                        // 針對雙按鈕戒指的多位元組全掃描 (支援 16-bit 與各偏移位)
+                        if (data.byteLength >= 2) {
+                            const v1 = data.getUint16(0, true);
+                            const v2 = data.byteLength >= 3 ? data.getUint16(1, true) : 0;
+                            const v3 = data.byteLength >= 4 ? data.getUint16(2, true) : 0;
+                            // 自動抓取數據包中最大的數值，通常這就是當前的總計數
+                            ringCount = Math.max(v1, v2, v3);
+                        }
+
+                        // 如果抓到的數字是 0 或異常小，可能還沒按按鈕，不予同步
+                        if (ringCount > 0) {
+                            count = ringCount;
+                            initialLock = false; // 接收到正確戒指數據，解鎖
                             updateDisplay();
                         }
                     });
                     bleBtn.innerText = "🔋"; bleBtn.classList.replace('searching', 'connected');
-                    bleConnected = true;
                 }
             } catch (err) { bleBtn.classList.remove('searching'); }
         };
@@ -126,7 +138,9 @@
             setTimeout(() => { if(isHolding) document.getElementById('progress-bar').classList.add('active'); }, 3500);
         });
         ctrl.addEventListener('touchend', () => {
-            if (isHolding && Date.now() - startTime < 400) { count++; updateDisplay(); }
+            if (isHolding && Date.now() - startTime < 400) { 
+                if (!initialLock) { count++; updateDisplay(); } // 只有在沒鎖定時才能加1
+            }
             isHolding = false; clearTimeout(holdTimer);
             document.getElementById('progress-bar').classList.remove('active');
         });
