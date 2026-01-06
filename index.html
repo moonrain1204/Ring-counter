@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>計數器 V6.3 終極整合版</title>
+    <title>計數器 V6.7 穩定同步版</title>
     <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #F5F5DC; font-family: sans-serif; user-select: none; }
@@ -51,7 +51,7 @@
                 <button class="zoom-btn" onclick="resize(10)">＋</button>
             </div>
             <div class="target-area">目標: <input type="number" id="target-input" placeholder="20000"> <span id="est-result"></span></div>
-            <div style="font-size: 9px; color: #bcbcad;">ID: 2530853 | V6.3 終極版</div>
+            <div style="font-size: 9px; color: #bcbcad;">ID: 2530853 | V6.7</div>
         </div>
     </div>
     <script>
@@ -87,7 +87,7 @@
             res.innerText = `預計: ${targetDate.getMonth()+1}/${targetDate.getDate()} ${targetDate.getHours()}:${targetDate.getMinutes().toString().padStart(2,'0')}`;
         }
 
-        // --- 核心修正：自動對齊與位元補償 ---
+        // --- 藍牙連線與數據解析 ---
         bleBtn.onclick = async () => {
             if (bleDevice && bleDevice.gatt.connected) { await bleDevice.gatt.disconnect(); bleBtn.innerText = "🔗"; bleBtn.classList.remove('connected'); return; }
             try {
@@ -102,20 +102,13 @@
                     await bleChar.startNotifications();
                     bleChar.addEventListener('characteristicvaluechanged', (event) => {
                         const data = event.target.value;
-                        let ringValue = 0;
-
-                        // 針對具備翻轉/長按功能之設備 (ID: 2530853) 的數據解析邏輯
-                        if (data.byteLength >= 3) {
-                            // 部分設備會將計數值放在第 1, 2 位元組，第 0 位元組用於存放功能狀態
-                            ringValue = data.getUint16(1, true); 
-                        } else {
-                            ringValue = data.getUint16(0, true);
-                        }
-
-                        // 強力除靈：排除 8190, 5407 等系統通訊值
-                        if (ringValue < 5000) {
-                            count = ringValue; 
-                            updateDisplay();
+                        if (data.byteLength >= 2) {
+                            let ringValue = data.getUint16(0, true);
+                            // 除靈邏輯：封印 5407 與 8190 等雜訊
+                            if (ringValue < 5000) {
+                                count = ringValue; 
+                                updateDisplay();
+                            }
                         }
                     });
                     bleBtn.innerText = "🔋"; bleBtn.classList.replace('searching', 'connected');
@@ -123,24 +116,38 @@
             } catch (err) { bleBtn.classList.remove('searching'); }
         };
 
-        // --- 觸控修正 ---
+        // --- 觸控層核心：解決加1失效與保留長按歸零 ---
         let startTime = 0, holdTimer, isHolding = false;
         const ctrl = document.getElementById('control-layer');
+        
         ctrl.addEventListener('touchstart', (e) => {
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
-            startTime = Date.now(); isHolding = true;
+            startTime = Date.now();
+            isHolding = true;
+            
+            // 手機端長按歸零 (5秒)
             holdTimer = setTimeout(() => {
-                if (isHolding && confirm("確定歸零？")) { count = 0; updateDisplay(); }
+                if (isHolding && confirm("歸零？")) {
+                    count = 0;
+                    updateDisplay();
+                }
+                isHolding = false;
                 document.getElementById('progress-bar').classList.remove('active');
             }, 5000);
+            
             setTimeout(() => { if(isHolding) document.getElementById('progress-bar').classList.add('active'); }, 3500);
         });
-        ctrl.addEventListener('touchend', () => {
-            if (isHolding && Date.now() - startTime < 400) { 
-                count++; // 點擊螢幕同步增加
-                updateDisplay(); 
+
+        ctrl.addEventListener('touchend', (e) => {
+            if (isHolding) {
+                const duration = Date.now() - startTime;
+                if (duration < 400) { // 快速點擊，確保螢幕加 1
+                    count++;
+                    updateDisplay();
+                }
             }
-            isHolding = false; clearTimeout(holdTimer);
+            isHolding = false;
+            clearTimeout(holdTimer);
             document.getElementById('progress-bar').classList.remove('active');
         });
 
@@ -150,7 +157,7 @@
             document.getElementById('log-content').innerHTML = content;
         };
         document.getElementById('log-close').onclick = () => document.getElementById('log-panel').classList.remove('active');
-        function clearHistory() { if(confirm("確定清空紀錄？")) { history = []; localStorage.setItem('myHistory', "[]"); updateDisplay(); } }
+        function clearHistory() { if(confirm("清空歷史紀錄？")) { history = []; localStorage.setItem('myHistory', "[]"); updateDisplay(); } }
         updateDisplay();
     </script>
 </body>
