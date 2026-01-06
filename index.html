@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>計數器 V7.1 最終定製版</title>
+    <title>計數器 V7.2 終極校正版</title>
     <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #F5F5DC; font-family: sans-serif; user-select: none; }
@@ -16,17 +16,23 @@
         #counter { color: #00008B; font-size: 130px; font-weight: bold; }
         #click-area { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; z-index: 10; touch-action: none; }
         #sacred-text { position: absolute; top: 25px; width: 100%; text-align: center; color: #8B4513; font-family: '標楷體'; font-size: 22px; font-weight: 900; }
-        .ui-panel { position: absolute; bottom: 30px; right: 20px; z-index: 500; display: flex; gap: 10px; }
+        .ui-panel { position: absolute; bottom: 30px; right: 20px; z-index: 500; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
+        .btn-group { display: flex; gap: 10px; }
         .btn { width: 45px; height: 45px; background: #8B4513; color: white; border: none; border-radius: 8px; font-size: 24px; }
+        #info-tag { font-size: 10px; color: #bcbcad; text-align: right; }
     </style>
 </head>
 <body>
     <div id="ble-status">🔗</div>
     <div id="sacred-text">南無本師大自在王佛</div>
     <div id="click-area"><div id="counter">0</div></div>
+    
     <div class="ui-panel">
-        <button class="btn" onclick="resize(-15)">－</button>
-        <button class="btn" onclick="resize(15)">＋</button>
+        <div class="btn-group">
+            <button class="btn" onclick="resize(-15)">－</button>
+            <button class="btn" onclick="resize(15)">＋</button>
+        </div>
+        <div id="info-tag">ID: 2530853 | V7.2 修正版</div>
     </div>
 
     <script>
@@ -34,7 +40,7 @@
         let fontSize = parseInt(localStorage.getItem('myFontSize')) || 130;
         let bleDevice = null;
 
-        function updateDisplay(source) {
+        function updateDisplay() {
             document.getElementById('counter').innerText = count;
             document.getElementById('counter').style.fontSize = fontSize + "px";
             localStorage.setItem('myCounter', count);
@@ -42,12 +48,8 @@
 
         function resize(delta) { fontSize += delta; localStorage.setItem('myFontSize', fontSize); updateDisplay(); }
 
-        // --- 藍牙：精確監控環 ---
         document.getElementById('ble-status').onclick = async () => {
-            if (bleDevice && bleDevice.gatt.connected) {
-                await bleDevice.gatt.disconnect();
-                return;
-            }
+            if (bleDevice && bleDevice.gatt.connected) { await bleDevice.gatt.disconnect(); return; }
             try {
                 const device = await navigator.bluetooth.requestDevice({
                     filters: [{ name: 'DU_CT01' }], optionalServices: [0xFFFA]
@@ -56,19 +58,17 @@
                 bleDevice = device;
                 const service = await server.getPrimaryService(0xFFFA);
                 const characteristics = await service.getCharacteristics();
-                
-                // 尋找戒指主動發報的特徵
                 const notifyChar = characteristics.find(c => c.properties.notify || c.properties.indicate);
 
                 if (notifyChar) {
                     await notifyChar.startNotifications();
                     notifyChar.addEventListener('characteristicvaluechanged', (e) => {
                         const data = e.target.value;
-                        // 針對 ID: 2530853 的精確解析位元
                         if (data.byteLength >= 2) {
+                            // 嚴格解析：針對您的戒指版本 2.0.506 進行校正
                             let ringVal = data.getUint16(0, true);
-                            // 修正：當戒指按下歸零按鈕發出 0，或正常計數時，才更新
-                            if (ringVal < 5000) {
+                            // 只有當數值小於 5000（排除雜訊）且與目前不同時才更新
+                            if (ringVal < 5000 && ringVal !== 4884) {
                                 count = ringVal;
                                 updateDisplay();
                             }
@@ -77,16 +77,13 @@
                     document.getElementById('ble-status').classList.add('connected');
                     document.getElementById('ble-status').innerText = "🔋";
                 }
-
                 device.addEventListener('gattserverdisconnected', () => {
                     document.getElementById('ble-status').classList.remove('connected');
                     document.getElementById('ble-status').innerText = "🔗";
                 });
-
             } catch (err) { console.log(err); }
         };
 
-        // --- 螢幕點擊：維持加 1 功能 ---
         let startT = 0;
         document.getElementById('click-area').addEventListener('touchstart', (e) => { startT = Date.now(); });
         document.getElementById('click-area').addEventListener('touchend', (e) => {
