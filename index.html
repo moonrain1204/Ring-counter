@@ -3,50 +3,77 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>計數器 V8.1 動態追蹤版</title>
+    <title>計數器 V9.0 全能修復版</title>
     <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #F5F5DC; font-family: sans-serif; user-select: none; }
         #ble-status { position: absolute; left: 20px; top: 20px; width: 50px; height: 50px; border-radius: 50%; background: #fff; display: flex; align-items: center; justify-content: center; font-size: 26px; z-index: 200; border: 3px solid #8B4513; cursor: pointer; }
-        #ble-status.connected { background: #4CAF50; border-color: #fff; color: white; box-shadow: 0 0 15px #4CAF50; }
+        #history-btn { position: absolute; right: 20px; top: 20px; width: 50px; height: 50px; border-radius: 50%; background: #fff; display: flex; align-items: center; justify-content: center; font-size: 26px; z-index: 200; border: 3px solid #8B4513; cursor: pointer; }
+        #ble-status.connected { background: #4CAF50; border-color: #fff; color: white; }
         #counter { color: #00008B; font-size: 130px; font-weight: bold; pointer-events: none; }
         #click-area { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; z-index: 10; cursor: pointer; }
         #sacred-text { position: absolute; top: 25px; width: 100%; text-align: center; color: #8B4513; font-family: '標楷體'; font-size: 24px; font-weight: 900; pointer-events: none; }
         .ui-panel { position: absolute; bottom: 30px; right: 20px; z-index: 500; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
-        .btn { width: 55px; height: 55px; background: #8B4513; color: white; border: none; border-radius: 12px; font-size: 32px; cursor: pointer; }
-        #info-tag { font-size: 11px; color: #bcbcad; text-align: right; }
+        .btn { width: 55px; height: 55px; background: #8B4513; color: white; border: none; border-radius: 12px; font-size: 28px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+        #history-panel { position: absolute; top: 80px; right: 20px; width: 180px; background: white; border: 2px solid #8B4513; border-radius: 8px; display: none; z-index: 1000; padding: 10px; max-height: 200px; overflow-y: auto; }
+        .hist-item { border-bottom: 1px solid #eee; padding: 5px 0; font-size: 14px; }
     </style>
 </head>
 <body>
     <div id="ble-status">🔗</div>
+    <div id="history-btn">🕒</div>
+    <div id="history-panel"><strong>歷史紀錄 (前10次)</strong><div id="hist-list"></div></div>
     <div id="sacred-text">南無本師大自在王佛</div>
     <div id="click-area"><div id="counter">0</div></div>
     
     <div class="ui-panel">
+        <button class="btn" onclick="event.stopPropagation(); saveAndReset();" style="width: 120px; font-size: 20px; background: #d9534f;">重置歸零</button>
         <div style="display:flex; gap:10px;">
             <button class="btn" onclick="event.stopPropagation(); resize(-15);">－</button>
             <button class="btn" onclick="event.stopPropagation(); resize(15);">＋</button>
         </div>
-        <div id="info-tag">ID: 2530853 | V8.1 變動追蹤</div>
+        <div style="font-size: 11px; color: #bcbcad;">ID: 2530853 | V9.0 全能修復版</div>
     </div>
 
     <script>
         let count = parseInt(localStorage.getItem('myCounter')) || 0;
         let fontSize = parseInt(localStorage.getItem('myFontSize')) || 130;
+        let history = JSON.parse(localStorage.getItem('myHistory')) || [];
         let bleDevice = null;
-        let lastRawValues = []; // 用於記錄上次封包內容
 
         function updateDisplay() {
             document.getElementById('counter').innerText = count;
             document.getElementById('counter').style.fontSize = fontSize + "px";
             localStorage.setItem('myCounter', count);
-            localStorage.setItem('myFontSize', fontSize);
         }
 
-        function resize(delta) { fontSize += delta; updateDisplay(); }
+        function resize(delta) { fontSize += delta; localStorage.setItem('myFontSize', fontSize); updateDisplay(); }
 
+        function saveAndReset() {
+            if (count > 0) {
+                history.unshift({time: new Date().toLocaleTimeString(), val: count});
+                history = history.slice(0, 10);
+                localStorage.setItem('myHistory', JSON.stringify(history));
+                renderHistory();
+            }
+            count = 0;
+            updateDisplay();
+            alert("已歸零並存入紀錄");
+        }
+
+        function renderHistory() {
+            const list = document.getElementById('hist-list');
+            list.innerHTML = history.map(h => `<div class="hist-item">${h.time} - ${h.val}次</div>`).join('');
+        }
+
+        document.getElementById('history-btn').onclick = () => {
+            const p = document.getElementById('history-panel');
+            p.style.display = p.style.display === 'none' ? 'block' : 'none';
+            renderHistory();
+        };
+
+        // 藍牙邏輯改進：一旦連線，優先信任變動值
         document.getElementById('ble-status').onclick = async () => {
-            if (bleDevice && bleDevice.gatt.connected) { await bleDevice.gatt.disconnect(); return; }
             try {
                 const device = await navigator.bluetooth.requestDevice({
                     filters: [{ name: 'DU_CT01' }], optionalServices: [0xFFFA]
@@ -60,50 +87,29 @@
                     await notifyChar.startNotifications();
                     notifyChar.addEventListener('characteristicvaluechanged', (e) => {
                         const data = e.target.value;
-                        let currentRaw = [];
-                        
-                        // 1. 抓取本次封包所有 16-bit 組合
+                        // 掃描封包，尋找與當前數值最接近的遞增值
                         for (let i = 0; i < data.byteLength - 1; i++) {
-                            currentRaw.push(data.getUint16(i, true));
-                        }
-
-                        // 2. 比對哪些位置發生了變動
-                        for (let i = 0; i < currentRaw.length; i++) {
-                            let val = currentRaw[i];
-                            // 排除心跳碼 8190/8191
-                            if (val === 8190 || val === 8191 || val === 4884) continue;
-                            
-                            // 如果這個位置的數字變了，且變動幅度合理(按一次增加1~5)
-                            if (lastRawValues[i] !== undefined && val !== lastRawValues[i]) {
-                                let diff = val - lastRawValues[i];
-                                if (diff > 0 && diff < 10) { 
-                                    count = val; // 更新為最新計數
-                                    updateDisplay();
-                                }
+                            let v = data.getUint16(i, true);
+                            if (v > count && v < count + 50) { // 允許合理的跳號
+                                count = v;
+                                updateDisplay();
+                                break;
                             }
                         }
-                        lastRawValues = currentRaw; // 更新快照
                     });
                     document.getElementById('ble-status').classList.add('connected');
                     document.getElementById('ble-status').innerText = "🔋";
                     bleDevice = device;
                 }
-            } catch (err) { console.log(err); }
+            } catch (err) { console.error(err); }
         };
 
-        // 螢幕手動加 1
-        const handleAction = (e) => {
-            e.preventDefault();
+        // 強制點擊區域修復
+        const area = document.getElementById('click-area');
+        area.onclick = (e) => {
             count++;
             updateDisplay();
         };
-        const area = document.getElementById('click-area');
-        area.addEventListener('touchstart', handleAction, {passive: false});
-        area.addEventListener('mousedown', (e) => {
-            if ('ontouchstart' in window) return;
-            count++;
-            updateDisplay();
-        });
 
         updateDisplay();
     </script>
