@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>計數器 V6.2Z+++ 終極聖戰版</title>
+    <title>計數器 V6.3 終極整合版</title>
     <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #F5F5DC; font-family: sans-serif; user-select: none; }
@@ -51,7 +51,7 @@
                 <button class="zoom-btn" onclick="resize(10)">＋</button>
             </div>
             <div class="target-area">目標: <input type="number" id="target-input" placeholder="20000"> <span id="est-result"></span></div>
-            <div style="font-size: 9px; color: #bcbcad;">V6.2Z+++ 終極修復</div>
+            <div style="font-size: 9px; color: #bcbcad;">ID: 2530853 | V6.3 終極版</div>
         </div>
     </div>
     <script>
@@ -59,7 +59,6 @@
         let history = JSON.parse(localStorage.getItem('myHistory')) || [];
         let fontSize = parseInt(localStorage.getItem('myFontSize')) || 120;
         let bleDevice = null;
-        let lastRingValue = -1;
 
         const counterEl = document.getElementById('counter');
         const bleBtn = document.getElementById('ble-status');
@@ -69,6 +68,7 @@
             counterEl.style.fontSize = fontSize + "px";
             localStorage.setItem('myCounter', count);
             localStorage.setItem('myFontSize', fontSize);
+            
             if (count > 0 && count % 500 === 0 && (!history[0] || history[0].count !== count)) {
                 const now = new Date();
                 const timeStr = `${now.getFullYear()}/${now.getMonth()+1}/${now.getDate()} ${now.getHours()}:${now.getMinutes().toString().padStart(2,'0')}`;
@@ -87,7 +87,7 @@
             res.innerText = `預計: ${targetDate.getMonth()+1}/${targetDate.getDate()} ${targetDate.getHours()}:${targetDate.getMinutes().toString().padStart(2,'0')}`;
         }
 
-        // --- 藍牙核心：同步與除靈 ---
+        // --- 核心修正：自動對齊與位元補償 ---
         bleBtn.onclick = async () => {
             if (bleDevice && bleDevice.gatt.connected) { await bleDevice.gatt.disconnect(); bleBtn.innerText = "🔗"; bleBtn.classList.remove('connected'); return; }
             try {
@@ -102,14 +102,20 @@
                     await bleChar.startNotifications();
                     bleChar.addEventListener('characteristicvaluechanged', (event) => {
                         const data = event.target.value;
-                        if (data.byteLength >= 2) {
-                            let ringValue = data.getUint16(0, true);
-                            
-                            // 封印幽靈：擋掉 8190, 5407 等系統噪音
-                            if (ringValue < 5000) { 
-                                count = ringValue; 
-                                updateDisplay(); 
-                            }
+                        let ringValue = 0;
+
+                        // 針對具備翻轉/長按功能之設備 (ID: 2530853) 的數據解析邏輯
+                        if (data.byteLength >= 3) {
+                            // 部分設備會將計數值放在第 1, 2 位元組，第 0 位元組用於存放功能狀態
+                            ringValue = data.getUint16(1, true); 
+                        } else {
+                            ringValue = data.getUint16(0, true);
+                        }
+
+                        // 強力除靈：排除 8190, 5407 等系統通訊值
+                        if (ringValue < 5000) {
+                            count = ringValue; 
+                            updateDisplay();
                         }
                     });
                     bleBtn.innerText = "🔋"; bleBtn.classList.replace('searching', 'connected');
@@ -117,7 +123,7 @@
             } catch (err) { bleBtn.classList.remove('searching'); }
         };
 
-        // --- 手動控制層 ---
+        // --- 觸控修正 ---
         let startTime = 0, holdTimer, isHolding = false;
         const ctrl = document.getElementById('control-layer');
         ctrl.addEventListener('touchstart', (e) => {
@@ -131,7 +137,8 @@
         });
         ctrl.addEventListener('touchend', () => {
             if (isHolding && Date.now() - startTime < 400) { 
-                count++; updateDisplay(); 
+                count++; // 點擊螢幕同步增加
+                updateDisplay(); 
             }
             isHolding = false; clearTimeout(holdTimer);
             document.getElementById('progress-bar').classList.remove('active');
