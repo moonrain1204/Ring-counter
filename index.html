@@ -3,18 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>計數器 V7.7 深度掃描版</title>
+    <title>計數器 V7.8 最終同步版</title>
     <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #F5F5DC; font-family: sans-serif; user-select: none; }
         #ble-status { position: absolute; left: 20px; top: 20px; width: 50px; height: 50px; border-radius: 50%; background: #fff; display: flex; align-items: center; justify-content: center; font-size: 26px; z-index: 200; border: 3px solid #8B4513; }
         #ble-status.connected { background: #4CAF50; border-color: #fff; color: white; box-shadow: 0 0 15px #4CAF50; }
         #counter { color: #00008B; font-size: 130px; font-weight: bold; }
-        #click-area { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; z-index: 10; }
+        #click-area { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; z-index: 10; touch-action: auto; }
         #sacred-text { position: absolute; top: 25px; width: 100%; text-align: center; color: #8B4513; font-family: '標楷體'; font-size: 24px; font-weight: 900; }
         .ui-panel { position: absolute; bottom: 30px; right: 20px; z-index: 500; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
         .btn-group { display: flex; gap: 10px; }
-        .btn { width: 55px; height: 55px; background: #8B4513; color: white; border: none; border-radius: 12px; font-size: 32px; cursor: pointer; }
+        .btn { width: 55px; height: 55px; background: #8B4513; color: white; border: none; border-radius: 12px; font-size: 32px; cursor: pointer; pointer-events: auto; }
         #info-tag { font-size: 11px; color: #bcbcad; text-align: right; margin-top: 5px; }
     </style>
 </head>
@@ -25,10 +25,10 @@
     
     <div class="ui-panel">
         <div class="btn-group">
-            <button class="btn" onclick="resize(-15)">－</button>
-            <button class="btn" onclick="resize(15)">＋</button>
+            <button class="btn" onclick="resize(-15); event.stopPropagation();">－</button>
+            <button class="btn" onclick="resize(15); event.stopPropagation();">＋</button>
         </div>
-        <div id="info-tag">ID: 2530853 | V7.7 修正版</div>
+        <div id="info-tag">ID: 2530853 | V7.8 最終同步版</div>
     </div>
 
     <script>
@@ -59,29 +59,33 @@
                     await notifyChar.startNotifications();
                     notifyChar.addEventListener('characteristicvaluechanged', (e) => {
                         const data = e.target.value;
-                        // 針對 8190 進行數據位移深度掃描
+                        // --- 最終同步掃描：搜尋封包內所有可能的 16 位元組合 ---
+                        let bestVal = -1;
                         for (let i = 0; i < data.byteLength - 1; i++) {
                             let val = data.getUint16(i, true);
-                            // 排除 8190/8191 以及其他已知的干擾碼
-                            if (val < 8190 && val !== 4884 && val !== 5407) {
-                                count = val;
-                                updateDisplay();
+                            // 邏輯：排除雜訊碼，並優先選取大於 100 的數值來對齊戒指螢幕
+                            if (val > 100 && val < 65000 && val !== 8190 && val !== 8191) {
+                                bestVal = val;
                                 break; 
                             }
+                        }
+                        if (bestVal !== -1) {
+                            count = bestVal;
+                            updateDisplay();
                         }
                     });
                     document.getElementById('ble-status').classList.add('connected');
                     document.getElementById('ble-status').innerText = "🔋";
                     bleDevice = device;
                 }
-            } catch (err) { alert("連線失敗: " + err); }
+            } catch (err) { console.log(err); }
         };
 
-        let startT = 0;
-        document.getElementById('click-area').addEventListener('touchstart', () => startT = Date.now());
-        document.getElementById('click-area').addEventListener('touchend', () => {
-            if (Date.now() - startT < 400) { count++; updateDisplay(); }
-        });
+        // 強制螢幕加 1 邏輯
+        document.getElementById('click-area').onclick = () => {
+            count++;
+            updateDisplay();
+        };
 
         updateDisplay();
     </script>
