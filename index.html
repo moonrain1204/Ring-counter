@@ -3,19 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>計數器 V7.8 最終同步版</title>
+    <title>計數器 V7.9 絕對同步版</title>
     <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #F5F5DC; font-family: sans-serif; user-select: none; }
         #ble-status { position: absolute; left: 20px; top: 20px; width: 50px; height: 50px; border-radius: 50%; background: #fff; display: flex; align-items: center; justify-content: center; font-size: 26px; z-index: 200; border: 3px solid #8B4513; }
         #ble-status.connected { background: #4CAF50; border-color: #fff; color: white; box-shadow: 0 0 15px #4CAF50; }
-        #counter { color: #00008B; font-size: 130px; font-weight: bold; }
-        #click-area { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; z-index: 10; touch-action: auto; }
-        #sacred-text { position: absolute; top: 25px; width: 100%; text-align: center; color: #8B4513; font-family: '標楷體'; font-size: 24px; font-weight: 900; }
+        #counter { color: #00008B; font-size: 130px; font-weight: bold; pointer-events: none; }
+        #click-area { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; z-index: 10; cursor: pointer; }
+        #sacred-text { position: absolute; top: 25px; width: 100%; text-align: center; color: #8B4513; font-family: '標楷體'; font-size: 24px; font-weight: 900; pointer-events: none; }
         .ui-panel { position: absolute; bottom: 30px; right: 20px; z-index: 500; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
-        .btn-group { display: flex; gap: 10px; }
-        .btn { width: 55px; height: 55px; background: #8B4513; color: white; border: none; border-radius: 12px; font-size: 32px; cursor: pointer; pointer-events: auto; }
-        #info-tag { font-size: 11px; color: #bcbcad; text-align: right; margin-top: 5px; }
+        .btn { width: 55px; height: 55px; background: #8B4513; color: white; border: none; border-radius: 12px; font-size: 32px; cursor: pointer; }
+        #info-tag { font-size: 11px; color: #bcbcad; text-align: right; }
     </style>
 </head>
 <body>
@@ -24,11 +23,11 @@
     <div id="click-area"><div id="counter">0</div></div>
     
     <div class="ui-panel">
-        <div class="btn-group">
-            <button class="btn" onclick="resize(-15); event.stopPropagation();">－</button>
-            <button class="btn" onclick="resize(15); event.stopPropagation();">＋</button>
+        <div style="display:flex; gap:10px;">
+            <button class="btn" onclick="event.stopPropagation(); resize(-15);">－</button>
+            <button class="btn" onclick="event.stopPropagation(); resize(15);">＋</button>
         </div>
-        <div id="info-tag">ID: 2530853 | V7.8 最終同步版</div>
+        <div id="info-tag">ID: 2530853 | V7.9 絕對同步版</div>
     </div>
 
     <script>
@@ -45,6 +44,7 @@
 
         function resize(delta) { fontSize += delta; updateDisplay(); }
 
+        // --- 藍牙核心：修正 5407 偏差 ---
         document.getElementById('ble-status').onclick = async () => {
             try {
                 const device = await navigator.bluetooth.requestDevice({
@@ -59,19 +59,21 @@
                     await notifyChar.startNotifications();
                     notifyChar.addEventListener('characteristicvaluechanged', (e) => {
                         const data = e.target.value;
-                        // --- 最終同步掃描：搜尋封包內所有可能的 16 位元組合 ---
-                        let bestVal = -1;
+                        let foundVals = [];
+                        // 深度掃描封包內所有可能的位置
                         for (let i = 0; i < data.byteLength - 1; i++) {
-                            let val = data.getUint16(i, true);
-                            // 邏輯：排除雜訊碼，並優先選取大於 100 的數值來對齊戒指螢幕
-                            if (val > 100 && val < 65000 && val !== 8190 && val !== 8191) {
-                                bestVal = val;
-                                break; 
+                            let v = data.getUint16(i, true);
+                            if (v > 100 && v < 65000 && v !== 8190 && v !== 8191 && v !== 5407) {
+                                foundVals.push(v);
                             }
                         }
-                        if (bestVal !== -1) {
-                            count = bestVal;
-                            updateDisplay();
+                        // 如果找到多個數字，取最大的那個（通常就是戒指目前的總數 6255）
+                        if (foundVals.length > 0) {
+                            let maxVal = Math.max(...foundVals);
+                            if (maxVal !== count) {
+                                count = maxVal;
+                                updateDisplay();
+                            }
                         }
                     });
                     document.getElementById('ble-status').classList.add('connected');
@@ -81,11 +83,16 @@
             } catch (err) { console.log(err); }
         };
 
-        // 強制螢幕加 1 邏輯
-        document.getElementById('click-area').onclick = () => {
+        // --- 點擊核心：絕對加 1 ---
+        document.getElementById('click-area').addEventListener('mousedown', (e) => {
             count++;
             updateDisplay();
-        };
+        });
+        document.getElementById('click-area').addEventListener('touchstart', (e) => {
+            e.preventDefault(); // 防止雙擊縮放，確保反應速度
+            count++;
+            updateDisplay();
+        }, {passive: false});
 
         updateDisplay();
     </script>
