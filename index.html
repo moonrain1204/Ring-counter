@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>計數器 V7.9 絕對同步版</title>
+    <title>計數器 V8.1 動態追蹤版</title>
     <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #F5F5DC; font-family: sans-serif; user-select: none; }
-        #ble-status { position: absolute; left: 20px; top: 20px; width: 50px; height: 50px; border-radius: 50%; background: #fff; display: flex; align-items: center; justify-content: center; font-size: 26px; z-index: 200; border: 3px solid #8B4513; }
+        #ble-status { position: absolute; left: 20px; top: 20px; width: 50px; height: 50px; border-radius: 50%; background: #fff; display: flex; align-items: center; justify-content: center; font-size: 26px; z-index: 200; border: 3px solid #8B4513; cursor: pointer; }
         #ble-status.connected { background: #4CAF50; border-color: #fff; color: white; box-shadow: 0 0 15px #4CAF50; }
         #counter { color: #00008B; font-size: 130px; font-weight: bold; pointer-events: none; }
         #click-area { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; z-index: 10; cursor: pointer; }
@@ -27,13 +27,14 @@
             <button class="btn" onclick="event.stopPropagation(); resize(-15);">－</button>
             <button class="btn" onclick="event.stopPropagation(); resize(15);">＋</button>
         </div>
-        <div id="info-tag">ID: 2530853 | V7.9 絕對同步版</div>
+        <div id="info-tag">ID: 2530853 | V8.1 變動追蹤</div>
     </div>
 
     <script>
         let count = parseInt(localStorage.getItem('myCounter')) || 0;
         let fontSize = parseInt(localStorage.getItem('myFontSize')) || 130;
         let bleDevice = null;
+        let lastRawValues = []; // 用於記錄上次封包內容
 
         function updateDisplay() {
             document.getElementById('counter').innerText = count;
@@ -44,8 +45,8 @@
 
         function resize(delta) { fontSize += delta; updateDisplay(); }
 
-        // --- 藍牙核心：修正 5407 偏差 ---
         document.getElementById('ble-status').onclick = async () => {
+            if (bleDevice && bleDevice.gatt.connected) { await bleDevice.gatt.disconnect(); return; }
             try {
                 const device = await navigator.bluetooth.requestDevice({
                     filters: [{ name: 'DU_CT01' }], optionalServices: [0xFFFA]
@@ -59,22 +60,29 @@
                     await notifyChar.startNotifications();
                     notifyChar.addEventListener('characteristicvaluechanged', (e) => {
                         const data = e.target.value;
-                        let foundVals = [];
-                        // 深度掃描封包內所有可能的位置
+                        let currentRaw = [];
+                        
+                        // 1. 抓取本次封包所有 16-bit 組合
                         for (let i = 0; i < data.byteLength - 1; i++) {
-                            let v = data.getUint16(i, true);
-                            if (v > 100 && v < 65000 && v !== 8190 && v !== 8191 && v !== 5407) {
-                                foundVals.push(v);
+                            currentRaw.push(data.getUint16(i, true));
+                        }
+
+                        // 2. 比對哪些位置發生了變動
+                        for (let i = 0; i < currentRaw.length; i++) {
+                            let val = currentRaw[i];
+                            // 排除心跳碼 8190/8191
+                            if (val === 8190 || val === 8191 || val === 4884) continue;
+                            
+                            // 如果這個位置的數字變了，且變動幅度合理(按一次增加1~5)
+                            if (lastRawValues[i] !== undefined && val !== lastRawValues[i]) {
+                                let diff = val - lastRawValues[i];
+                                if (diff > 0 && diff < 10) { 
+                                    count = val; // 更新為最新計數
+                                    updateDisplay();
+                                }
                             }
                         }
-                        // 如果找到多個數字，取最大的那個（通常就是戒指目前的總數 6255）
-                        if (foundVals.length > 0) {
-                            let maxVal = Math.max(...foundVals);
-                            if (maxVal !== count) {
-                                count = maxVal;
-                                updateDisplay();
-                            }
-                        }
+                        lastRawValues = currentRaw; // 更新快照
                     });
                     document.getElementById('ble-status').classList.add('connected');
                     document.getElementById('ble-status').innerText = "🔋";
@@ -83,16 +91,19 @@
             } catch (err) { console.log(err); }
         };
 
-        // --- 點擊核心：絕對加 1 ---
-        document.getElementById('click-area').addEventListener('mousedown', (e) => {
+        // 螢幕手動加 1
+        const handleAction = (e) => {
+            e.preventDefault();
+            count++;
+            updateDisplay();
+        };
+        const area = document.getElementById('click-area');
+        area.addEventListener('touchstart', handleAction, {passive: false});
+        area.addEventListener('mousedown', (e) => {
+            if ('ontouchstart' in window) return;
             count++;
             updateDisplay();
         });
-        document.getElementById('click-area').addEventListener('touchstart', (e) => {
-            e.preventDefault(); // 防止雙擊縮放，確保反應速度
-            count++;
-            updateDisplay();
-        }, {passive: false});
 
         updateDisplay();
     </script>
