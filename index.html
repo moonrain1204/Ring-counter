@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>計數器 V6.7 穩定同步版</title>
+    <title>計數器 V6.8 快速回連版</title>
     <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #F5F5DC; font-family: sans-serif; user-select: none; }
@@ -35,7 +35,7 @@
 </head>
 <body>
     <div id="progress-bar"></div>
-    <div id="header-controls"><div id="ble-status">🔗</div><div id="sacred-text">南無本師大自在王佛</div><div id="log-toggle"></div></div>
+    <div id="header-controls"><div id="ble-status" title="點擊連線戒指">🔗</div><div id="sacred-text">南無本師大自在王佛</div><div id="log-toggle"></div></div>
     <div id="display-layer"><div id="counter">0</div></div>
     <div id="control-layer"></div>
     <div id="log-panel">
@@ -51,7 +51,7 @@
                 <button class="zoom-btn" onclick="resize(10)">＋</button>
             </div>
             <div class="target-area">目標: <input type="number" id="target-input" placeholder="20000"> <span id="est-result"></span></div>
-            <div style="font-size: 9px; color: #bcbcad;">ID: 2530853 | V6.7</div>
+            <div style="font-size: 9px; color: #bcbcad;">ID: 2530853 | V6.8</div>
         </div>
     </div>
     <script>
@@ -87,67 +87,61 @@
             res.innerText = `預計: ${targetDate.getMonth()+1}/${targetDate.getDate()} ${targetDate.getHours()}:${targetDate.getMinutes().toString().padStart(2,'0')}`;
         }
 
-        // --- 藍牙連線與數據解析 ---
+        // --- 藍牙核心：解決斷線問題 ---
         bleBtn.onclick = async () => {
-            if (bleDevice && bleDevice.gatt.connected) { await bleDevice.gatt.disconnect(); bleBtn.innerText = "🔗"; bleBtn.classList.remove('connected'); return; }
+            if (bleDevice && bleDevice.gatt.connected) { 
+                await bleDevice.gatt.disconnect(); 
+                return; 
+            }
             try {
                 bleBtn.classList.add('searching');
-                const server = await (bleDevice = await navigator.bluetooth.requestDevice({
+                // 優先過濾您的設備名稱
+                const device = await navigator.bluetooth.requestDevice({
                     filters: [{ name: 'DU_CT01' }], optionalServices: [0xFFFA]
-                })).gatt.connect();
+                });
+                
+                // 監聽意外斷線並恢復圖示
+                device.addEventListener('gattserverdisconnected', () => {
+                    bleBtn.innerText = "🔗";
+                    bleBtn.classList.remove('connected');
+                });
+
+                const server = await device.gatt.connect();
+                bleDevice = device;
                 const service = await server.getPrimaryService(0xFFFA);
                 const bleChar = (await service.getCharacteristics()).find(c => c.properties.notify || c.properties.indicate);
 
                 if (bleChar) {
                     await bleChar.startNotifications();
-                    bleChar.addEventListener('characteristicvaluechanged', (event) => {
-                        const data = event.target.value;
-                        if (data.byteLength >= 2) {
-                            let ringValue = data.getUint16(0, true);
-                            // 除靈邏輯：封印 5407 與 8190 等雜訊
-                            if (ringValue < 5000) {
-                                count = ringValue; 
-                                updateDisplay();
-                            }
-                        }
+                    bleChar.addEventListener('characteristicvaluechanged', (e) => {
+                        let ringValue = e.target.value.getUint16(0, true);
+                        if (ringValue < 5000) { count = ringValue; updateDisplay(); }
                     });
                     bleBtn.innerText = "🔋"; bleBtn.classList.replace('searching', 'connected');
                 }
             } catch (err) { bleBtn.classList.remove('searching'); }
         };
 
-        // --- 觸控層核心：解決加1失效與保留長按歸零 ---
+        // --- 觸控層：修正點擊加1與長按歸零 ---
         let startTime = 0, holdTimer, isHolding = false;
         const ctrl = document.getElementById('control-layer');
         
         ctrl.addEventListener('touchstart', (e) => {
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
-            startTime = Date.now();
-            isHolding = true;
-            
-            // 手機端長按歸零 (5秒)
+            startTime = Date.now(); isHolding = true;
             holdTimer = setTimeout(() => {
-                if (isHolding && confirm("歸零？")) {
-                    count = 0;
-                    updateDisplay();
-                }
+                if (isHolding && confirm("確定執行手機端歸零？")) { count = 0; updateDisplay(); }
                 isHolding = false;
                 document.getElementById('progress-bar').classList.remove('active');
             }, 5000);
-            
             setTimeout(() => { if(isHolding) document.getElementById('progress-bar').classList.add('active'); }, 3500);
         });
 
-        ctrl.addEventListener('touchend', (e) => {
-            if (isHolding) {
-                const duration = Date.now() - startTime;
-                if (duration < 400) { // 快速點擊，確保螢幕加 1
-                    count++;
-                    updateDisplay();
-                }
+        ctrl.addEventListener('touchend', () => {
+            if (isHolding && (Date.now() - startTime < 400)) {
+                count++; updateDisplay();
             }
-            isHolding = false;
-            clearTimeout(holdTimer);
+            isHolding = false; clearTimeout(holdTimer);
             document.getElementById('progress-bar').classList.remove('active');
         });
 
