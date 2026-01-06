@@ -3,94 +3,75 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>計數器 V7.2 終極校正版</title>
+    <title>計數器 V7.3 數據破壞版</title>
     <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #F5F5DC; font-family: sans-serif; user-select: none; }
-        #ble-status {
-            position: absolute; left: 20px; top: 20px; width: 45px; height: 45px; border-radius: 50%;
-            background: #fff; display: flex; align-items: center; justify-content: center;
-            font-size: 24px; cursor: pointer; z-index: 200; border: 2px solid #8B4513;
-        }
-        #ble-status.connected { background: #4CAF50; border-color: #fff; color: white; box-shadow: 0 0 15px #4CAF50; }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #F5F5DC; user-select: none; }
+        #ble-status { position: absolute; left: 20px; top: 20px; width: 50px; height: 50px; border-radius: 50%; background: #fff; display: flex; align-items: center; justify-content: center; font-size: 26px; cursor: pointer; z-index: 200; border: 3px solid #8B4513; }
+        #ble-status.connected { background: #4CAF50; border-color: #fff; color: white; }
         #counter { color: #00008B; font-size: 130px; font-weight: bold; }
         #click-area { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; z-index: 10; touch-action: none; }
-        #sacred-text { position: absolute; top: 25px; width: 100%; text-align: center; color: #8B4513; font-family: '標楷體'; font-size: 22px; font-weight: 900; }
-        .ui-panel { position: absolute; bottom: 30px; right: 20px; z-index: 500; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
-        .btn-group { display: flex; gap: 10px; }
-        .btn { width: 45px; height: 45px; background: #8B4513; color: white; border: none; border-radius: 8px; font-size: 24px; }
-        #info-tag { font-size: 10px; color: #bcbcad; text-align: right; }
+        #sacred-text { position: absolute; top: 25px; width: 100%; text-align: center; color: #8B4513; font-family: '標楷體'; font-size: 24px; font-weight: 900; }
+        #info { position: absolute; bottom: 20px; right: 20px; font-size: 11px; color: #bcbcad; text-align: right; }
     </style>
 </head>
 <body>
     <div id="ble-status">🔗</div>
     <div id="sacred-text">南無本師大自在王佛</div>
     <div id="click-area"><div id="counter">0</div></div>
-    
-    <div class="ui-panel">
-        <div class="btn-group">
-            <button class="btn" onclick="resize(-15)">－</button>
-            <button class="btn" onclick="resize(15)">＋</button>
-        </div>
-        <div id="info-tag">ID: 2530853 | V7.2 修正版</div>
-    </div>
+    <div id="info">ID: 2530853 | V7.3 數據破壞版</div>
 
     <script>
         let count = parseInt(localStorage.getItem('myCounter')) || 0;
-        let fontSize = parseInt(localStorage.getItem('myFontSize')) || 130;
         let bleDevice = null;
 
         function updateDisplay() {
             document.getElementById('counter').innerText = count;
-            document.getElementById('counter').style.fontSize = fontSize + "px";
             localStorage.setItem('myCounter', count);
         }
 
-        function resize(delta) { fontSize += delta; localStorage.setItem('myFontSize', fontSize); updateDisplay(); }
-
         document.getElementById('ble-status').onclick = async () => {
-            if (bleDevice && bleDevice.gatt.connected) { await bleDevice.gatt.disconnect(); return; }
             try {
                 const device = await navigator.bluetooth.requestDevice({
                     filters: [{ name: 'DU_CT01' }], optionalServices: [0xFFFA]
                 });
                 const server = await device.gatt.connect();
-                bleDevice = device;
                 const service = await server.getPrimaryService(0xFFFA);
-                const characteristics = await service.getCharacteristics();
-                const notifyChar = characteristics.find(c => c.properties.notify || c.properties.indicate);
+                const chars = await service.getCharacteristics();
 
-                if (notifyChar) {
-                    await notifyChar.startNotifications();
-                    notifyChar.addEventListener('characteristicvaluechanged', (e) => {
-                        const data = e.target.value;
-                        if (data.byteLength >= 2) {
-                            // 嚴格解析：針對您的戒指版本 2.0.506 進行校正
-                            let ringVal = data.getUint16(0, true);
-                            // 只有當數值小於 5000（排除雜訊）且與目前不同時才更新
-                            if (ringVal < 5000 && ringVal !== 4884) {
-                                count = ringVal;
-                                updateDisplay();
+                // 嘗試對所有特徵發送「啟動指令」
+                for (let char of chars) {
+                    // 1. 嘗試開啟通知
+                    if (char.properties.notify) {
+                        await char.startNotifications();
+                        char.addEventListener('characteristicvaluechanged', (e) => {
+                            let val = e.target.value;
+                            // 修正解析：抓取封包中任何看起來像數字的部分
+                            for(let i=0; i<val.byteLength-1; i++){
+                                let temp = val.getUint16(i, true);
+                                if(temp > 0 && temp < 50000 && temp !== 4884) { 
+                                    count = temp; updateDisplay(); break;
+                                }
                             }
-                        }
-                    });
-                    document.getElementById('ble-status').classList.add('connected');
-                    document.getElementById('ble-status').innerText = "🔋";
+                        });
+                    }
+                    // 2. 嘗試發送「喚醒/同步」指令 (有些戒指需要這步才會動)
+                    if (char.properties.write) {
+                        try { await char.writeValue(new Uint8Array([0x01])); } catch(e){}
+                    }
                 }
-                device.addEventListener('gattserverdisconnected', () => {
-                    document.getElementById('ble-status').classList.remove('connected');
-                    document.getElementById('ble-status').innerText = "🔗";
-                });
-            } catch (err) { console.log(err); }
+                
+                document.getElementById('ble-status').classList.add('connected');
+                document.getElementById('ble-status').innerText = "🔋";
+                bleDevice = device;
+            } catch (err) { alert("連線出錯: " + err); }
         };
 
+        // 確保點擊螢幕絕對會加1 (避開所有藍牙邏輯，讓手機先動起來)
         let startT = 0;
-        document.getElementById('click-area').addEventListener('touchstart', (e) => { startT = Date.now(); });
-        document.getElementById('click-area').addEventListener('touchend', (e) => {
-            if (Date.now() - startT < 400) {
-                count++;
-                updateDisplay();
-            }
+        document.getElementById('click-area').addEventListener('touchstart', () => startT = Date.now());
+        document.getElementById('click-area').addEventListener('touchend', () => {
+            if (Date.now() - startT < 400) { count++; updateDisplay(); }
         });
 
         updateDisplay();
