@@ -3,13 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>計數器 V28.0 深度校準</title>
+    <title>計數器 V29.0 強制同步版</title>
     <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #F5F5DC; font-family: sans-serif; user-select: none; }
-        #ble-status { position: absolute; left: 15px; top: 15px; width: 50px; height: 50px; border-radius: 50%; background: #fff; border: 3px solid #8B4513; display: flex; align-items: center; justify-content: center; font-size: 24px; z-index: 200; cursor: pointer; }
-        #history-btn { position: absolute; right: 15px; top: 15px; width: 50px; height: 50px; border-radius: 50%; background: #fff; border: 3px solid #8B4513; display: flex; align-items: center; justify-content: center; font-size: 24px; z-index: 200; cursor: pointer; }
-        #ble-status.connected { background: #4CAF50; border-color: #fff; }
+        /* 狀態指示燈：未連線灰色，連線綠色 */
+        #ble-status { position: absolute; left: 15px; top: 15px; width: 50px; height: 50px; border-radius: 50%; background: #ccc; border: 3px solid #8B4513; display: flex; align-items: center; justify-content: center; font-size: 24px; z-index: 200; cursor: pointer; transition: 0.3s; }
+        #ble-status.connected { background: #4CAF50; border-color: #fff; box-shadow: 0 0 15px #4CAF50; }
+        #conn-text { position: absolute; left: 75px; top: 30px; font-size: 14px; color: #8B4513; font-weight: bold; }
         #sacred-text { position: absolute; top: 85px; width: 100%; text-align: center; color: #8B4513; font-family: '標楷體'; font-size: 28px; font-weight: 900; pointer-events: none; }
         #counter { color: #00008B; font-size: 130px; font-weight: bold; pointer-events: none; margin-top: 60px; }
         #click-area { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; z-index: 10; cursor: pointer; }
@@ -19,7 +20,7 @@
 </head>
 <body>
     <div id="ble-status">🔗</div>
-    <div id="history-btn">🕒</div>
+    <div id="conn-text">未連線</div>
     <div id="sacred-text">南無本師大自在王佛</div>
     <div id="click-area"><div id="counter">0</div></div>
     
@@ -29,19 +30,19 @@
             <button class="btn" onclick="event.stopPropagation(); resize(-15);">－</button>
             <button class="btn" onclick="event.stopPropagation(); resize(15);">＋</button>
         </div>
-        <div id="debug-info" style="font-size: 10px; color: #bcbcad;">V28.0 校準完成 | ID: 2530853</div>
+        <div id="debug-info" style="font-size: 10px; color: #bcbcad;">V29.0 等待同步數據...</div>
     </div>
 
     <script>
         let count = parseInt(localStorage.getItem('myCounter')) || 0;
         let fontSize = parseInt(localStorage.getItem('myFontSize')) || 130;
 
-        function updateDisplay(source = "manual") {
+        function updateDisplay(isRingUpdate = false) {
             document.getElementById('counter').innerText = count;
             document.getElementById('counter').style.fontSize = fontSize + "px";
             localStorage.setItem('myCounter', count);
-            if(source !== "manual") {
-                document.getElementById('debug-info').innerText = "戒指連動中: " + count;
+            if (isRingUpdate) {
+                document.getElementById('debug-info').innerText = "✅ 戒指同步成功: " + count;
             }
         }
 
@@ -58,22 +59,28 @@
                 const char = await service.getCharacteristic(0xFFFC);
 
                 await char.startNotifications();
+                
+                // 標記連線成功
+                document.getElementById('ble-status').classList.add('connected');
+                document.getElementById('conn-text').innerText = "已連線 (DU_CT01)";
+
                 char.addEventListener('characteristicvaluechanged', (e) => {
                     const data = e.target.value;
-                    // 精準修正：跳過前兩位元組雜訊，讀取 15-45 位置
-                    // 取第 2, 3 位元組進行組合
                     if (data.byteLength >= 4) {
+                        // 根據截圖數據 FE-1F-15-45 抓取第 2,3 位元組
                         let ringValue = data.getUint16(2, true); 
                         
-                        // 過濾掉 17685 或過大的異常數值
-                        if (ringValue > 0 && ringValue < 15000) {
+                        // 過濾異常雜訊 17685
+                        if (ringValue > 0 && ringValue < 65000 && ringValue !== 17685) {
                             count = ringValue;
-                            updateDisplay("ring");
+                            updateDisplay(true); // 強制同步
                         }
                     }
                 });
-                document.getElementById('ble-status').classList.add('connected');
-            } catch (err) { console.error(err); }
+            } catch (err) { 
+                console.error(err);
+                document.getElementById('conn-text').innerText = "連線失敗";
+            }
         };
 
         document.getElementById('click-area').onclick = () => { count++; updateDisplay(); };
