@@ -3,43 +3,40 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>計數器 V24.0 佈局優化版</title>
+    <title>計數器 V27.0 最終修正版</title>
     <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #F5F5DC; font-family: sans-serif; user-select: none; }
-        /* 調整頂部按鈕位置，避免遮擋標題 */
-        #ble-status { position: absolute; left: 15px; top: 15px; width: 50px; height: 50px; border-radius: 50%; background: #fff; display: flex; align-items: center; justify-content: center; font-size: 24px; z-index: 200; border: 3px solid #8B4513; cursor: pointer; }
-        #history-btn { position: absolute; right: 15px; top: 15px; width: 50px; height: 50px; border-radius: 50%; background: #fff; display: flex; align-items: center; justify-content: center; font-size: 24px; z-index: 200; border: 3px solid #8B4513; cursor: pointer; }
-        #ble-status.connected { background: #4CAF50; border-color: #fff; color: white; box-shadow: 0 0 15px #4CAF50; }
-        /* 標題向下微調，防止被圓圈遮蔽 */
-        #sacred-text { position: absolute; top: 75px; width: 100%; text-align: center; color: #8B4513; font-family: '標楷體'; font-size: 26px; font-weight: 900; pointer-events: none; letter-spacing: 2px; }
-        #counter { color: #00008B; font-size: 130px; font-weight: bold; pointer-events: none; margin-top: 40px; }
+        /* 調整按鈕，完全避開標題 */
+        #ble-status { position: absolute; left: 15px; top: 15px; width: 48px; height: 48px; border-radius: 50%; background: #fff; border: 3px solid #8B4513; display: flex; align-items: center; justify-content: center; font-size: 22px; z-index: 200; cursor: pointer; }
+        #history-btn { position: absolute; right: 15px; top: 15px; width: 48px; height: 48px; border-radius: 50%; background: #fff; border: 3px solid #8B4513; display: flex; align-items: center; justify-content: center; font-size: 22px; z-index: 200; cursor: pointer; }
+        #ble-status.connected { background: #4CAF50; border-color: #fff; color: white; box-shadow: 0 0 10px #4CAF50; }
+        /* 標題位置修正：確保在按鈕下方，不被遮蔽 */
+        #sacred-text { position: absolute; top: 80px; width: 100%; text-align: center; color: #8B4513; font-family: '標楷體'; font-size: 26px; font-weight: 900; pointer-events: none; letter-spacing: 2px; }
+        #counter { color: #00008B; font-size: 130px; font-weight: bold; pointer-events: none; margin-top: 50px; }
         #click-area { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; z-index: 10; cursor: pointer; }
-        .ui-panel { position: absolute; bottom: 30px; right: 20px; z-index: 500; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
-        .btn { width: 55px; height: 55px; background: #8B4513; color: white; border: none; border-radius: 12px; font-size: 32px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
-        #history-panel { position: absolute; top: 75px; right: 15px; width: 220px; background: white; border: 2px solid #8B4513; border-radius: 8px; display: none; z-index: 1000; padding: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.2); }
+        .ui-panel { position: absolute; bottom: 25px; right: 20px; z-index: 500; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
+        .btn { width: 55px; height: 55px; background: #8B4513; color: white; border: none; border-radius: 12px; font-size: 32px; cursor: pointer; }
     </style>
 </head>
 <body>
     <div id="ble-status">🔗</div>
     <div id="history-btn">🕒</div>
-    <div id="history-panel"><strong>歷史紀錄</strong><div id="hist-list"></div></div>
     <div id="sacred-text">南無本師大自在王佛</div>
     <div id="click-area"><div id="counter">0</div></div>
     
     <div class="ui-panel">
-        <button onclick="event.stopPropagation(); safeReset();" style="width: 120px; height: 45px; background: #d9534f; color:white; border:none; border-radius:10px; font-weight:bold;">歸零確認</button>
+        <button onclick="event.stopPropagation(); safeReset();" style="width: 110px; height: 40px; background: #d9534f; color:white; border:none; border-radius:8px; font-weight:bold;">歸零確認</button>
         <div style="display:flex; gap:10px;">
             <button class="btn" onclick="event.stopPropagation(); resize(-15);">－</button>
             <button class="btn" onclick="event.stopPropagation(); resize(15);">＋</button>
         </div>
-        <div style="font-size: 11px; color: #bcbcad;">ID: 2530853 | V24.0 強制對齊版</div>
+        <div id="debug-info" style="font-size: 10px; color: #bcbcad;">V27.0 | ID: 2530853</div>
     </div>
 
     <script>
         let count = parseInt(localStorage.getItem('myCounter')) || 0;
         let fontSize = parseInt(localStorage.getItem('myFontSize')) || 130;
-        let history = JSON.parse(localStorage.getItem('myHistory')) || [];
 
         function updateDisplay() {
             document.getElementById('counter').innerText = count;
@@ -48,24 +45,7 @@
         }
 
         function resize(delta) { fontSize += delta; localStorage.setItem('myFontSize', fontSize); updateDisplay(); }
-
-        function safeReset() {
-            if (confirm("⚠️ 確定要將目前進度歸零嗎？")) {
-                if (count > 0) {
-                    history.unshift({time: new Date().toLocaleString(), val: count});
-                    history = history.slice(0, 10);
-                    localStorage.setItem('myHistory', JSON.stringify(history));
-                }
-                count = 0;
-                updateDisplay();
-            }
-        }
-
-        document.getElementById('history-btn').onclick = () => {
-            const p = document.getElementById('history-panel');
-            p.style.display = p.style.display === 'none' ? 'block' : 'none';
-            document.getElementById('hist-list').innerHTML = history.length ? history.map(h => `<div style="border-bottom:1px solid #eee; padding:5px; font-size:12px;">${h.time}<br><b>${h.val}次</b></div>`).join('') : "暫無紀錄";
-        };
+        function safeReset() { if (confirm("⚠️ 確定歸零？")) { count = 0; updateDisplay(); } }
 
         document.getElementById('ble-status').onclick = async () => {
             try {
@@ -74,28 +54,31 @@
                 });
                 const server = await device.gatt.connect();
                 const service = await server.getPrimaryService(0xFFFA);
-                const char = await service.getCharacteristic(0xFFFC);
-
-                await char.startNotifications();
-                char.addEventListener('characteristicvaluechanged', (e) => {
-                    const data = e.target.value;
-                    // 核心關鍵：跳過前兩個字節(雜訊)，從索引 2 開始讀取兩個字節
-                    if (data.byteLength >= 4) {
-                        let ringValue = data.getUint16(2, true); 
-                        
-                        // 過濾已知雜訊區間
-                        if (ringValue !== 69 && ringValue !== 17685 && ringValue < 65000) {
-                            // 強制連動：手機數字直接等於戒指數字
-                            count = ringValue;
-                            updateDisplay();
-                        }
+                
+                // 獲取服務下所有特徵值，進行全方位監聽
+                const characteristics = await service.getCharacteristics();
+                
+                for (let char of characteristics) {
+                    if (char.properties.notify) {
+                        await char.startNotifications();
+                        char.addEventListener('characteristicvaluechanged', (e) => {
+                            const data = e.target.value;
+                            if (data.byteLength >= 4) {
+                                // 根據您的 15-45 (5445) 數據包偏移量進行讀取
+                                let ringVal = data.getUint16(2, true);
+                                if (ringVal > 100 && ringVal < 60000) {
+                                    count = ringVal;
+                                    updateDisplay();
+                                    document.getElementById('debug-info').innerText = "同步成功: " + ringVal;
+                                }
+                            }
+                        });
                     }
-                });
+                }
                 document.getElementById('ble-status').classList.add('connected');
             } catch (err) { console.error(err); }
         };
 
-        // 手機點擊也可以加法，但只要戒指一按，就會以戒指為準強制對齊
         document.getElementById('click-area').onclick = () => { count++; updateDisplay(); };
         updateDisplay();
     </script>
